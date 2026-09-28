@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Add durable model request tracking, optional cancel/status adapters, shared admission and uncertain-request quarantine.
+- Add first-output/idle deadlines, lease-bound cancellation notifications, and model state visibility.
+- Require explicit provider reasoning levels; add offline gateway tests and an opt-in synthetic model probe.
+- SDK additions remain optional; text defaults to 1.1.0 with the prior module definition retained. Migration 030 requires stopping old workers before upgrade; do not mix workers that bypass the request ledger.
+
+
 ## 0.3.0-preview.1 — 开发者预览候选
 
 此版本为本地可构建候选，公开托管与外部试用状态见 [预览交付说明](docs/preview-release.md)。

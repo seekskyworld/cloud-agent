@@ -149,6 +149,8 @@ export type ModelRequest = {
   inputTokenBudget?: number;
   /** 单次模型调用上限；必须服从任务剩余总预算。 */
   timeoutMs?: number;
+  firstOutputTimeoutMs?: number;
+  idleTimeoutMs?: number;
   /** 显式控制推理强度，避免将未传参数误认为已关闭推理。 */
   reasoning?: ReasoningLevel;
   /** 默认不请求 SDK 提示缓存；不保证供应商或网关禁用服务器缓存。 */
@@ -213,16 +215,19 @@ export type Module = {
   ) => Promise<void>;
 };
 export interface ModelEngine {
+  lifecycle?: import("./model-lifecycle.js").ModelLifecyclePolicy;
+  control?: import("./model-lifecycle.js").ModelControl;
   countTokens?: (request: ModelRequest, tools: Tool[]) => number;
   stream?: (
     request: ModelRequest,
     tools: Tool[],
     signal: AbortSignal,
-    context?: { principal: Principal; taskId: string },
+    context?: import("./model-lifecycle.js").ModelCallContext,
   ) => AsyncIterable<
     { type: "text"; text: string } | { type: "result"; value: ModelTurn }
   >;
   capabilities?: {
+    progress?: boolean;
     modalities?: ("text" | "image" | "file")[];
     tools?: boolean;
     reasoning?: ReasoningLevel[];
@@ -236,7 +241,7 @@ export interface ModelEngine {
     request: ModelRequest,
     tools: Tool[],
     signal: AbortSignal,
-    context?: { principal: Principal; taskId: string },
+    context?: import("./model-lifecycle.js").ModelCallContext,
   ): Promise<ModelTurn>;
 }
 export class Problem extends Error {
@@ -271,3 +276,11 @@ export function requireCapability(
   if (!hasCapability(principal, capability))
     throw new Problem(403, "FORBIDDEN");
 }
+
+export type {
+  ModelInvocation,
+  ModelCallContext,
+  ModelReceipt,
+  ModelControl,
+  ModelLifecyclePolicy,
+} from "./model-lifecycle.js";

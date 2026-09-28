@@ -84,6 +84,18 @@ export const DetailSchema = z.object({
       receipt: z.string().nullable(),
     }),
   ),
+  modelRequests: z
+    .array(
+      z.object({
+        id: z.uuid(),
+        state: z.string(),
+        remote_state: z.string(),
+        quarantine_until: z.string(),
+        cost_usd: z.number().nullable(),
+        usage_complete: z.boolean(),
+      }),
+    )
+    .optional(),
   files: z.array(FileSchema),
 });
 export const MeSchema = z.object({

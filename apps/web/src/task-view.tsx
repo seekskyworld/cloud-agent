@@ -158,6 +158,13 @@ export function TaskView({
           已停止后续步骤；已发生的业务动作仍需查看执行记录。
         </p>
       )}
+      {(detail.modelRequests ?? []).some((r) =>
+        ["unknown", "cancelling"].includes(r.state),
+      ) && (
+        <p className="muted">
+          模型请求的远端状态尚未确认，可能仍在计算或计费。系统会核对状态并控制重试；任务取消不代表供应商已停止。
+        </p>
+      )}
       {canReconcile && (
         <ReconciliationPanel detail={detail} token={token} refresh={refresh} />
       )}

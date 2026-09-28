@@ -1,3 +1,4 @@
+import { CancellationNotifications } from "./cancellation.js";
 /** PostgreSQL 事务与迁移基础设施；网络副作用必须放在事务外。 */
 import { readFile, readdir } from "node:fs/promises";
 import { Pool, type PoolClient } from "pg";
@@ -5,6 +6,7 @@ export { fingerprint, tokenHash } from "../contracts/fingerprint.js";
 import { fingerprint } from "../contracts/fingerprint.js";
 export class Database {
   readonly pool: Pool;
+  readonly cancellations: CancellationNotifications;
   constructor(url: string) {
     this.pool = new Pool({
       connectionString: url,
@@ -13,6 +15,7 @@ export class Database {
       statement_timeout: 30_000,
       idle_in_transaction_session_timeout: 30_000,
     });
+    this.cancellations = new CancellationNotifications(this.pool);
   }
   async transaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await this.pool.connect();
@@ -59,6 +62,7 @@ export class Database {
     });
   }
   async close(): Promise<void> {
+    await this.cancellations.close();
     await this.pool.end();
   }
 }

@@ -53,7 +53,8 @@
     "test:tooling": "node --test scripts/*.test.mjs",
     "secrets:check": "node scripts/check-secrets.mjs",
     "release:prepare": "node scripts/prepare-release.mjs",
-    "release:verify": "node scripts/verify-release.mjs"
+    "release:verify": "node scripts/verify-release.mjs",
+    "model:probe": "tsx --conditions=development scripts/probe-model.ts"
   },
   "dependencies": {
     "@astryxdesign/core": "0.6.3",

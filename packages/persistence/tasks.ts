@@ -350,7 +350,21 @@ export class TaskStore {
           [id],
         )
       ).rows;
-      return { task, steps, waits, artifacts, invocations, files };
+      const modelRequests = (
+        await client.query(
+          "SELECT id,state,remote_state,quarantine_until,cost_usd,usage_complete FROM model_requests WHERE task_id=$1 ORDER BY created_at,id",
+          [id],
+        )
+      ).rows;
+      return {
+        task,
+        steps,
+        waits,
+        artifacts,
+        invocations,
+        files,
+        modelRequests,
+      };
     });
   }
   async events(principal: Principal, id: string, after: string) {

@@ -25,6 +25,7 @@ const env = {
   COMPOSE_FILE: "compose.yaml:compose.files.yaml",
   EXAMPLES_ENABLED: "true",
   MODEL_PROFILES: "[]",
+  MODEL_OPTIONS: "{}",
   ARTIFACT_STORES: "[]",
   DEPLOYMENT_MANAGED: "false",
   COST_POLICY: "",
@@ -145,7 +146,16 @@ try {
          assert.equal(Number(result.cost_usd),mismatch?0.25:0.125);
          assert.equal(calls-before,mismatch?2:1);
        }
-       console.log('Runtime role checkpoint recovery and mismatch accounting passed');
+       engine.next=async()=>new Promise(()=>{});
+       c.registry.register({...module,id:'smoke-unknown',version:'2',budget:{maxDurationMs:30}});
+       const uncertain=await c.service.create(actor,'smoke-unknown',{},'unknown-model');
+       await c.worker.tick();
+       const row=(await c.db.pool.query("SELECT state FROM model_requests WHERE task_id=$1",[uncertain.id])).rows[0];
+       assert.equal(row.state,'unknown');
+       await c.service.cancel(actor,uncertain.id);
+       await c.worker.modelLifecycle.reconcile(()=>engine);
+       assert.equal((await c.tasks.get(actor,uncertain.id)).status,'cancelled');
+       console.log('Runtime role checkpoint, model ledger, uncertainty and cancellation passed');
      } finally {await c.close();}`,
   ]);
 

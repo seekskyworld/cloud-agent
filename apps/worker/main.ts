@@ -39,6 +39,9 @@ const loops = [
       )
     : []),
   loop("maintenance", 1000, async () => {
+    await container.worker.modelLifecycle.reconcile((id) =>
+      container.models.byEngineId(id),
+    );
     await container.waits.expire();
     await container.schedules.tick();
     await container.businessJobs.tick();

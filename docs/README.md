@@ -17,3 +17,5 @@
 预览候选、发布顺序与外部试用标准见 [预览交付说明](preview-release.md)。
 
 支持与维护见 [SUPPORT](../SUPPORT.md)、[GOVERNANCE](../GOVERNANCE.md)。贡献见 [CONTRIBUTING](../CONTRIBUTING.md)，实施清单见 [业务接入](business-integration-plan.md)、[通用解耦](extensibility-plan.md) 与 [运行时重构](refactoring-plan.md)，版本变化见 [CHANGELOG](../CHANGELOG.md)，安全问题见 [SECURITY](../SECURITY.md)。
+
+- [模型调用生命周期](model-lifecycle.md)：远端取消、未知请求隔离、模型容量与协议验收。

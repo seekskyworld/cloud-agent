@@ -6,7 +6,8 @@
     "dist",
     "tests",
     "apps/web",
-    "playwright.config.ts"
+    "playwright.config.ts",
+    "scripts/browser-server.ts"
   ],
   "compilerOptions": {
     "declaration": true

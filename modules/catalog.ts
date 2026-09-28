@@ -6,7 +6,8 @@ export const moduleFactories: (() => Module)[] = [
   reportModule,
   () => reportModule(true),
   textModule,
+  () => textModule("1.0.0"),
   // generated:factories
 ];
 /** 多版本共存时显式指定新任务的默认版本。 */
-export const defaultModuleVersions: Record<string, string> = {};
+export const defaultModuleVersions: Record<string, string> = { text: "1.1.0" };

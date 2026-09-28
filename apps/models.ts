@@ -1,3 +1,4 @@
+import { gatewayControl } from "../adapters/engine-pi/control.js";
 /** 模型实现静态注册；外部连接沿用共用授权/凭据端口，不把密钥存入任务指纹。 */
 import { z } from "zod";
 import {
@@ -12,6 +13,31 @@ import { fingerprint } from "../packages/persistence/database.js";
 const Demo = z
   .object({ provider: z.literal("demo"), id: z.string().min(1) })
   .strict();
+export const ModelOptions = z
+  .object({
+    reasoningLevels: z
+      .array(
+        z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
+      )
+      .min(1)
+      .optional(),
+    managed: z
+      .object({ scope: z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/) })
+      .strict()
+      .optional(),
+    lifecycle: z
+      .object({
+        resourceId: z.string().min(1).max(200),
+        concurrency: z.number().int().min(1).max(1000).optional(),
+        unknownLimit: z.number().int().min(1).max(1000).optional(),
+        quarantineMs: z.number().int().min(1000).max(86400000).optional(),
+        firstOutputTimeoutMs: z.number().int().min(1).max(1800000).optional(),
+        idleTimeoutMs: z.number().int().min(1).max(1800000).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
 const Pi = z
   .object({
     provider: z.literal("pi"),
@@ -21,6 +47,7 @@ const Pi = z
     inputPrice: z.number().positive(),
     outputPrice: z.number().positive(),
     reasoning: z.boolean().default(false),
+    ...ModelOptions.shape,
   })
   .strict();
 export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
@@ -39,13 +66,26 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
     diagnose: (c, connections, signal) =>
       connections.diagnose(c.connection, signal, bearer),
     create: (config, connections) => ({
-      id: `pi:0.85.1:${config.id}`,
+      lifecycle: config.lifecycle ?? {
+        resourceId: `connection:${config.connection}`,
+        firstOutputTimeoutMs: 90000,
+        idleTimeoutMs: 60000,
+      },
+      control: config.managed
+        ? gatewayControl(async (signal) => {
+            const c = await connections.controlCredentials(
+              config.connection,
+              signal,
+            );
+            return { baseUrl: c.endpoint, apiKey: bearer(c.secret) };
+          }, config.managed)
+        : undefined,
+      id: `pi:0.85.1:lifecycle-v1:${config.id}:${fingerprint({ config, connection: connections.definitions.find((c) => c.id === config.connection) })}`,
       capabilities: {
+        progress: true,
         structuredOutput: "validated",
         maxOutputTokens: 2048,
-        reasoning: config.reasoning
-          ? ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
-          : ["none"],
+        reasoning: config.reasoningLevels ?? ["none"],
         cache: true,
       },
       async next(request, tools, signal, context) {
@@ -61,8 +101,13 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
           model: config.model,
           inputPrice: config.inputPrice,
           outputPrice: config.outputPrice,
-          reasoning: config.reasoning,
-        }).next(request, tools, signal);
+          reasoning:
+            config.reasoningLevels?.some((v) => v !== "none") ??
+            config.reasoning,
+          reasoningLevels: config.reasoningLevels,
+          managed: config.managed,
+          lifecycle: config.lifecycle,
+        }).next(request, tools, signal, context);
       },
     }),
   }),

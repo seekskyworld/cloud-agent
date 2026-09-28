@@ -5,10 +5,10 @@ import {
   type Module,
   type ModelTurn,
 } from "../../packages/contracts/index.js";
-export function textModule(): Module {
+export function textModule(version = "1.1.0"): Module {
   return {
     id: "text",
-    version: "1.0.0",
+    version,
     title: "文本处理示例",
     description:
       "演示单轮模型调用；默认模式只回显输入，配置模型后按要求处理文本",

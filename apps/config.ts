@@ -6,7 +6,7 @@ import {
   type BusinessDeployment,
 } from "../packages/business/index.js";
 import type { DispatchPolicy } from "../packages/runtime/admission.js";
-import { loadModelProfiles } from "./models.js";
+import { loadModelProfiles, ModelOptions } from "./models.js";
 import { loadArtifacts } from "./artifacts.js";
 import { loadChannels } from "./channel-config.js";
 import { loadConnections } from "./connections.js";
@@ -40,6 +40,7 @@ const Schema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
 });
 export type Config = Omit<z.infer<typeof Schema>, "EXAMPLES_ENABLED"> & {
+  modelOptions?: z.infer<typeof ModelOptions>;
   workerPool?: string;
   workerLabels?: string[];
   tenantRatePerMinute?: number;
@@ -68,6 +69,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("LLM_API_KEY required for pi mode");
   return {
     ...config,
+    modelOptions: ModelOptions.parse(JSON.parse(env.MODEL_OPTIONS || "{}")),
     workerPool: z
       .string()
       .regex(/^[a-z][a-z0-9-]{0,63}$/)

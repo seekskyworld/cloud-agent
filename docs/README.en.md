@@ -15,3 +15,5 @@ Start with [the English quick start](getting-started.en.md) or [the project READ
 | Support, maintenance and security | [Support](../SUPPORT.md), [governance](../GOVERNANCE.md), [security](../SECURITY.md) (Chinese) |
 
 The protocol and operator references currently use Chinese; this index does not imply complete translation. Only neutral examples are bundled. Domain-specific applications and authentication policies belong in independently maintained packages.
+
+- [Model request lifecycle (Chinese)](model-lifecycle.md): cancellation, remote uncertainty, shared capacity, and gateway contracts.

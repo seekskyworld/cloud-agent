@@ -50,6 +50,15 @@ export class Connections {
       throw new Error("CREDENTIAL_INVALID");
     validate?.(secret);
   }
+  /** 仅供可信宿主的取消/核对适配器使用；不暴露给请求或模型，不授权新业务调用。 */
+  async controlCredentials(id: string, signal: AbortSignal) {
+    const connection = this.definitions.find((c) => c.id === id);
+    if (!connection) throw new Problem(503, "CONNECTION_NOT_FOUND");
+    const secret = await abortable(signal, () =>
+      this.secrets(connection.credential, signal),
+    );
+    return { endpoint: connection.endpoint, secret };
+  }
   async resolve(
     id: string,
     actor: Principal,

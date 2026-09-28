@@ -36,6 +36,19 @@ export function prepareModelRequest(
 ): ModelRequest {
   validateCapabilities(request, engine, tools);
   validateRequestOptions(request, engine);
+  for (const timeout of [request.firstOutputTimeoutMs, request.idleTimeoutMs]) {
+    if (
+      timeout !== undefined &&
+      (!Number.isInteger(timeout) || timeout < 1 || timeout > 1_800_000)
+    )
+      throw new Problem(422, "MODEL_TIMEOUT_INVALID");
+    if (
+      timeout !== undefined &&
+      !engine.capabilities?.progress &&
+      !request.stream
+    )
+      throw new Problem(422, "MODEL_PROGRESS_UNSUPPORTED");
+  }
   const budget = request.inputTokenBudget;
   const reasoning = request.reasoning ?? "none";
   const instructions = modelInstructions(request, engine);
@@ -156,10 +169,7 @@ export async function invokeModel(
   request: ModelRequest,
   tools: Tool[],
   signal: AbortSignal,
-  context: {
-    principal: import("../contracts/index.js").Principal;
-    taskId: string;
-  },
+  context: import("../contracts/model-lifecycle.js").ModelCallContext,
   onText?: (text: string) => void,
 ): Promise<ModelTurn> {
   if (!request.stream) return engine.next(request, tools, signal, context);
@@ -171,6 +181,7 @@ export async function invokeModel(
     if (result) throw new Problem(422, "MODEL_STREAM_INVALID");
     if (chunk.type === "result") result = chunk.value;
     else {
+      if (chunk.text.length) context.progress?.();
       bytes += Buffer.byteLength(chunk.text);
       if (bytes > 1_000_000) throw new Problem(422, "MODEL_STREAM_TOO_LARGE");
       onText?.(chunk.text);

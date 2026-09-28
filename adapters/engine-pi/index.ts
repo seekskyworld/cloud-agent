@@ -1,3 +1,16 @@
+import { fingerprint } from "../../packages/contracts/fingerprint.js";
+import {
+  gatewayControl,
+  managedHeaders,
+  verifyManagedResponse,
+  type ManagedGateway,
+} from "./control.js";
+import type {
+  ModelCallContext,
+  ModelLifecyclePolicy,
+  ModelControl,
+} from "../../packages/contracts/model-lifecycle.js";
+import type { ReasoningLevel } from "../../packages/contracts/index.js";
 import {
   ExecutionFailure,
   retryAfter,
@@ -28,6 +41,8 @@ const wireName = (name: string) => `t_${Buffer.from(name).toString("hex")}`;
 export class PiEngine implements ModelEngine {
   readonly capabilities: NonNullable<ModelEngine["capabilities"]>;
   readonly id: string;
+  readonly lifecycle: ModelLifecyclePolicy;
+  readonly control?: ModelControl;
   private model: Model<"openai-completions">;
   constructor(
     private config: {
@@ -37,24 +52,36 @@ export class PiEngine implements ModelEngine {
       inputPrice: number;
       outputPrice: number;
       reasoning?: boolean;
+      reasoningLevels?: ReasoningLevel[];
+      lifecycle?: ModelLifecyclePolicy;
+      managed?: ManagedGateway;
     },
   ) {
     this.capabilities = {
+      progress: true,
       structuredOutput: "validated",
       maxOutputTokens: 2048,
-      reasoning: config.reasoning
-        ? ["none", "minimal", "low", "medium", "high", "xhigh", "max"]
-        : ["none"],
+      reasoning: config.reasoningLevels ?? ["none"],
       cache: true,
     };
-    this.id = `pi:0.85.1:${config.model}`;
+    this.id = `pi:0.85.1:lifecycle-v1:${config.model}:${fingerprint({ baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels })}`;
+    this.lifecycle = config.lifecycle ?? {
+      resourceId: `pi:${fingerprint(config.baseUrl)}`,
+      firstOutputTimeoutMs: 90000,
+      idleTimeoutMs: 60000,
+    };
+    if (config.managed)
+      this.control = gatewayControl(async () => config, config.managed);
     this.model = {
       id: config.model,
       name: config.model,
       api: "openai-completions",
       provider: "openai",
       baseUrl: config.baseUrl,
-      reasoning: config.reasoning ?? false,
+      reasoning:
+        config.reasoningLevels?.some((v) => v !== "none") ??
+        config.reasoning ??
+        false,
       input: ["text"],
       cost: {
         input: config.inputPrice,
@@ -116,12 +143,15 @@ export class PiEngine implements ModelEngine {
     request: ModelRequest,
     tools: Tool[],
     signal: AbortSignal,
+    context?: ModelCallContext,
   ): Promise<ModelTurn> {
     // 请求有明确字符上限，避免无限会话和工具输出挤占上下文。
     if (JSON.stringify(request).length > 80_000)
       throw new Problem(422, "CONTEXT_BUDGET_EXCEEDED");
     let httpFailure: ExecutionFailure | undefined;
-    const output = await completions(
+    if (this.config.managed && !context?.invocation)
+      throw new Problem(422, "MODEL_INVOCATION_REQUIRED");
+    const stream = completions(
       this.model,
       {
         systemPrompt: request.instructions,
@@ -134,6 +164,10 @@ export class PiEngine implements ModelEngine {
       },
       {
         apiKey: this.config.apiKey,
+        headers:
+          this.config.managed && context?.invocation
+            ? managedHeaders(this.config.managed, context.invocation)
+            : undefined,
         signal,
         timeoutMs: request.timeoutMs,
         maxTokens: request.maxOutputTokens ?? 2048,
@@ -155,7 +189,9 @@ export class PiEngine implements ModelEngine {
         },
         // SDK 将 HTTP 异常转成流结束事件；在传输边界保留状态，避免依赖可能含秘密的错误正文。
         fetch: async (input, init) => {
-          const response = await fetch(input, init);
+          const response = await fetch(input, { ...init, redirect: "error" });
+          if (this.config.managed && context?.invocation)
+            verifyManagedResponse(response, context.invocation.id);
           if (!response.ok)
             httpFailure = new ExecutionFailure(
               response.status === 429
@@ -185,8 +221,17 @@ export class PiEngine implements ModelEngine {
           return response;
         },
       },
-    ).result();
+    );
+    const output = await consumeModelStream(stream, signal, context?.progress);
     if (httpFailure) throw httpFailure;
+    await reportUsage(output, context);
+    if (
+      output.usage.output > (request.maxOutputTokens ?? 2048) &&
+      (request.reasoning ?? "none") === "none"
+    )
+      throw new ExecutionFailure("permanent", "MODEL_OUTPUT_LIMIT");
+    if (output.stopReason === "length")
+      throw new ExecutionFailure("permanent", "MODEL_OUTPUT_LIMIT");
     if (!["stop", "toolUse"].includes(output.stopReason))
       throw new Problem(502, "MODEL_INCOMPLETE");
     const calls = output.content
@@ -226,4 +271,39 @@ export class DemoEngine implements ModelEngine {
       outputTokens: 0,
     };
   }
+}
+
+async function consumeModelStream(
+  stream: ReturnType<typeof completions>,
+  signal: AbortSignal,
+  progress?: () => void,
+) {
+  let bytes = 0;
+  for await (const event of stream) {
+    signal.throwIfAborted();
+    if (
+      "delta" in event &&
+      typeof event.delta === "string" &&
+      event.delta.length
+    ) {
+      progress?.();
+      bytes += Buffer.byteLength(event.delta);
+      if (bytes > 1_000_000)
+        throw new ExecutionFailure("permanent", "MODEL_OUTPUT_LIMIT");
+    }
+  }
+  return stream.result();
+}
+
+/** 完整终态与业务输出是否合格分开；中断时观测到的用量只作为部分值。 */
+async function reportUsage(
+  output: Awaited<ReturnType<ReturnType<typeof completions>["result"]>>,
+  context?: ModelCallContext,
+) {
+  const complete = ["stop", "toolUse", "length"].includes(output.stopReason);
+  if (complete || output.usage.totalTokens > 0)
+    await context?.report?.({
+      state: complete ? "completed" : "unknown",
+      usage: { costUsd: output.usage.cost.total, estimated: true, complete },
+    });
 }

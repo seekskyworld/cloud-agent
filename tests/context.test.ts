@@ -1,3 +1,4 @@
+import { ExecutionFailure } from "../packages/contracts/failure.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
@@ -126,7 +127,10 @@ test("上下文快照重放不重新检索，模型前和结果读取复核当�
     async next(request) {
       calls++;
       assert.match(request.messages.at(-1)!.text, /reference-v1/);
-      if (calls === 1) throw new Error("temporary");
+      if (calls === 1)
+        throw new ExecutionFailure("transient", "MODEL_NOT_ACCEPTED", {
+          notAccepted: true,
+        });
       return output;
     },
   };

@@ -1,3 +1,7 @@
+import {
+  pendingModel,
+  pendingModule,
+} from "../tests/fixtures/model-pending.js";
 import { z } from "zod";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -20,33 +24,37 @@ const admin = new pg.Pool({ connectionString: source });
 await admin.query(`CREATE DATABASE "${name}"`);
 url.pathname = `/${name}`;
 const filesDirectory = await mkdtemp(join(tmpdir(), "cloud-agent-browser-"));
-const container = await createContainer({
-  artifactConfig: {
-    provider: "local",
-    id: "browser-files",
-    directory: filesDirectory,
-  },
-  businesses: [
-    {
-      id: "starter",
-      enabled: true,
-      config: {},
-      bindings: { output: "browser-files" },
+const container = await createContainer(
+  {
+    artifactConfig: {
+      provider: "local",
+      id: "browser-files",
+      directory: filesDirectory,
     },
-  ],
-  DATABASE_URL: url.toString(),
-  AUTH_MODE: "none",
-  LOCAL_WORKSPACE: "browser",
-  LOCAL_PRINCIPAL: "owner",
-  HOST: "127.0.0.1",
-  PORT: 3197,
-  MODEL_MODE: "demo",
-  LLM_BASE_URL: "https://example.invalid",
-  LLM_MODEL: "fixture",
-  LLM_INPUT_PRICE: 1,
-  LLM_OUTPUT_PRICE: 4,
-  WORKER_CONCURRENCY: 2,
-});
+    businesses: [
+      {
+        id: "starter",
+        enabled: true,
+        config: {},
+        bindings: { output: "browser-files" },
+      },
+    ],
+    DATABASE_URL: url.toString(),
+    AUTH_MODE: "none",
+    LOCAL_WORKSPACE: "browser",
+    LOCAL_PRINCIPAL: "owner",
+    HOST: "127.0.0.1",
+    PORT: 3197,
+    MODEL_MODE: "demo",
+    LLM_BASE_URL: "https://example.invalid",
+    LLM_MODEL: "fixture",
+    LLM_INPUT_PRICE: 1,
+    LLM_OUTPUT_PRICE: 4,
+    WORKER_CONCURRENCY: 2,
+  },
+  { engine: pendingModel },
+);
+container.registry.register(pendingModule);
 // 浏览器专用未知回执替身，不执行真实外部写操作。
 container.registry.register({
   id: "browser-unknown",

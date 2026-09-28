@@ -149,6 +149,7 @@ async function assemble(
       modelUrl: config.LLM_BASE_URL,
       inputPrice: config.LLM_INPUT_PRICE,
       outputPrice: config.LLM_OUTPUT_PRICE,
+      modelOptions: config.modelOptions,
     }),
     models.fingerprints(),
     contexts.fingerprints(),
@@ -423,6 +424,10 @@ function createEngine(config: Config, extensions: ContainerExtensions) {
           model: config.LLM_MODEL,
           inputPrice: config.LLM_INPUT_PRICE,
           outputPrice: config.LLM_OUTPUT_PRICE,
+          ...config.modelOptions,
+          reasoning: config.modelOptions?.reasoningLevels?.some(
+            (v) => v !== "none",
+          ),
         }));
   return engine;
 }

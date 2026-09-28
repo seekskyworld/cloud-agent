@@ -170,7 +170,17 @@ export class Operations {
       "SELECT module_id,count(*)::text FROM tasks WHERE status='running' AND lease_until>now() AND ($1::text IS NULL OR workspace_id=$1) GROUP BY module_id",
       [workspace ?? null],
     );
+    const model = (
+      await this.db.pool.query<{ state: string; count: string }>(
+        "SELECT m.state,count(*)::text FROM model_requests m JOIN tasks t ON t.id=m.task_id WHERE ($1::text IS NULL OR t.workspace_id=$1) AND m.quarantine_until>now() GROUP BY m.state",
+        [workspace ?? null],
+      )
+    ).rows;
     return [
+      ...model.map(
+        (r) =>
+          `cloud_agent_model_requests{state=${JSON.stringify(r.state)}} ${r.count}`,
+      ),
       ...channels.rows.map(
         (row) =>
           `cloud_agent_channel_outbox{state=${JSON.stringify(row.state)}} ${row.count}`,

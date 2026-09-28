@@ -1,14 +1,15 @@
+import { ModelLifecycle } from "./model-lifecycle.js";
+import { ModelRequestStore } from "../persistence/model-requests.js";
 import {
   prepareModelRequest,
   modelCheckpointHash,
   validateModelTurn,
-  invokeModel,
 } from "./model-request.js";
 import { ExecutionFailure, failureOutcome } from "../contracts/failure.js";
 /** 每次推进一个持久步骤；引擎仅提议动作，执行权归运行时。 */
 import type { ModelProfiles } from "./models.js";
 import { z } from "zod";
-import { abortable, bounded } from "../contracts/lifecycle.js";
+import { bounded } from "../contracts/lifecycle.js";
 import {
   Problem,
   requireCapability,
@@ -28,6 +29,7 @@ import type { ToolExecutionPort } from "./ports.js";
 import type { Registry } from "./registry.js";
 export class Worker {
   private broker: ToolExecutionPort;
+  readonly modelLifecycle: ModelLifecycle;
   constructor(
     readonly store: ExecutionStore,
     readonly waits: WaitStore,
@@ -44,6 +46,10 @@ export class Worker {
   ) {
     // The default keeps the existing constructor compatible; hosts can inject a broker or process-isolated executor.
     this.broker = broker ?? new ToolBroker();
+    this.modelLifecycle = new ModelLifecycle(
+      new ModelRequestStore(store.db),
+      costs,
+    );
   }
   async tick(): Promise<boolean> {
     const task = await this.store.claim(
@@ -55,15 +61,22 @@ export class Worker {
     );
     if (!task) return false;
     const controller = new AbortController();
+    const checkLease = () => {
+      void this.store.db.cancellations.connect();
+      void this.store
+        .heartbeat(task)
+        .then((valid) => {
+          if (!valid) controller.abort();
+        })
+        .catch(() => controller.abort());
+    };
+    const unwatch = await this.store.db.cancellations.watch(
+      task.lease_token!,
+      checkLease,
+    );
+    checkLease();
     const timer = setInterval(
-      () => {
-        void this.store
-          .heartbeat(task)
-          .then((valid) => {
-            if (!valid) controller.abort();
-          })
-          .catch(() => controller.abort());
-      },
+      checkLease,
       Math.max(25, Math.floor(this.store.leaseMs / 3)),
     );
     try {
@@ -96,6 +109,7 @@ export class Worker {
         }
       }
     } finally {
+      unwatch();
       clearInterval(timer);
       controller.abort();
     }
@@ -202,7 +216,7 @@ export class Worker {
       return;
     }
     if (tool?.approval && (await this.approve(task, step, tool))) return;
-    await this.store.begin(task, step);
+    if (action.kind !== "model") await this.store.begin(task, step);
     const started = Date.now();
     if (action.kind === "model")
       return this.model(task, step, action, module, signal, started);
@@ -306,21 +320,21 @@ export class Worker {
       const current = await this.current(task);
       requireCapability(current, module.capability);
       await this.contexts?.authorizeTask(task, current, deadline.signal);
-      await this.costs?.reserve(
-        task,
-        invocation,
-        task.budget.maxCostUsd - Number(task.cost_usd),
-      );
-      const raw = await abortable(deadline.signal, () =>
-        this.observed(
-          "model.invoke",
-          { "task.id": task.id, "step.id": step.id, "provider.id": engine.id },
-          () =>
-            invokeModel(engine, request, tools, deadline.signal, {
-              principal: current,
-              taskId: task.id,
-            }),
-        ),
+      const raw = await this.observed(
+        "model.invoke",
+        { "task.id": task.id, "step.id": step.id, "provider.id": engine.id },
+        () =>
+          this.modelLifecycle.invoke({
+            task,
+            step,
+            engine,
+            request,
+            tools,
+            principal: current,
+            signal: deadline.signal,
+            deadlineAt: deadline.deadlineAt,
+            begin: () => this.store.begin(task, step),
+          }),
       );
       chargedCost =
         Number.isFinite(raw.costUsd) && raw.costUsd >= 0 ? raw.costUsd : 0;
@@ -371,6 +385,7 @@ export class Worker {
       controller.abort(new Error("MODEL_EXECUTION_TIMEOUT"));
     }, timeoutMs);
     return {
+      deadlineAt: Date.now() + timeoutMs,
       signal: AbortSignal.any([parent, controller.signal]),
       timedOut: () => timedOut,
       close: () => {

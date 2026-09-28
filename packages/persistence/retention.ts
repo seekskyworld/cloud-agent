@@ -5,6 +5,7 @@ import type { Database } from "./database.js";
 const eligible = `t.retired_at IS NULL
 AND t.status IN ('succeeded','failed','cancelled') AND t.updated_at<now()-$1::integer*interval '1 day'
 AND NOT EXISTS(SELECT 1 FROM tool_invocations i WHERE i.task_id=t.id AND i.status IN ('unknown','dispatching'))
+AND NOT EXISTS(SELECT 1 FROM model_requests m WHERE m.task_id=t.id AND m.state IN ('running','cancelling','unknown') AND m.quarantine_until>now())
 AND NOT EXISTS(SELECT 1 FROM waits w WHERE w.task_id=t.id AND w.status='pending')
 AND NOT EXISTS(SELECT 1 FROM mail_outbox m WHERE m.task_id=t.id AND m.state NOT IN ('sent','cancelled'))
 AND NOT EXISTS(SELECT 1 FROM channel_outbox o WHERE o.task_id=t.id AND o.state NOT IN ('sent','cancelled'))

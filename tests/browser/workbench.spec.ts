@@ -204,3 +204,31 @@ test("未知写入可凭外部回执核实完成，页面不重新发送工具",
   await page.getByRole("button", { name: "提交核实", exact: true }).click();
   await expect(page.locator(".detail .badge")).toHaveText("已完成");
 });
+
+test("模型失联提示与任务取消状态分别展示，手机不溢出", async ({ page }) => {
+  await openWorkspace(page);
+  await page.getByLabel("选择助手").selectOption("browser-model-unknown");
+  await page.getByRole("button", { name: "创建任务 →", exact: true }).click();
+  const warning = page.getByText("模型请求的远端状态尚未确认", {
+    exact: false,
+  });
+  await expect(warning).toBeVisible();
+  await page.getByRole("button", { name: "取消任务", exact: true }).click();
+  await expect(page.locator(".detail .badge")).toHaveText("已取消");
+  await expect(warning).toBeVisible();
+  await page.screenshot({
+    path: "test-results/model-unknown-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(warning).toBeVisible();
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: "test-results/model-unknown-mobile.png",
+    fullPage: true,
+  });
+});

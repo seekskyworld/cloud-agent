@@ -1,3 +1,5 @@
+import { ModelRequestStore } from "../packages/persistence/model-requests.js";
+import { ExecutionStore } from "../packages/persistence/execution.js";
 /** 自动创建两个隔离测试库，真实 pg_dump/psql + 两个对象存储联合恢复；不读取 .env。 */
 import { randomBytes } from "node:crypto";
 import { mkdtemp, rm, writeFile, readFile, mkdir } from "node:fs/promises";
@@ -103,6 +105,34 @@ try {
       c.downloads.get({ ...actor, workspace_id: "other" }, artifactIds[0]!),
       /TASK_NOT_FOUND/,
     );
+    const modelTask = await c.service.create(
+      actor,
+      "text",
+      { text: "synthetic recovery", instruction: "echo" },
+      "pending-model",
+    );
+    const lease = await c.execution.claim(c.engine.id);
+    assert.equal(lease?.id, modelTask.id);
+    const action = c.registry.get("text").next(modelTask.input, []);
+    if (action.kind !== "model" || !lease)
+      throw new Error("MODEL_FIXTURE_INVALID");
+    const step = await c.execution.prepare(lease, action);
+    await c.execution.begin(lease, step);
+    const modelStore = new ModelRequestStore(c.db);
+    const pending = await modelStore.begin(
+      lease,
+      step,
+      c.engine.id,
+      { resourceId: c.engine.id },
+      Date.now() + 60000,
+      "recovery-fixture",
+    );
+    await modelStore.uncertain(pending.id);
+    await modelStore.receipt(pending.id, { state: "unknown" });
+    await c.db.pool.query(
+      "UPDATE tasks SET lease_until=now()-interval '1 second' WHERE id=$1",
+      [modelTask.id],
+    );
     const deployments = new Deployments(c.db),
       revision = await deployments.stage(c.registry.deployment());
     await deployments.activate(revision, null, "test", "restore rehearsal");
@@ -160,6 +190,30 @@ try {
     assert.equal(recovered.status, "succeeded");
     assert.equal(recovered.request_key, "original-command");
     await target.pool.query("UPDATE platform_maintenance SET enabled=false");
+    assert.equal(
+      (
+        await target.pool.query(
+          "SELECT state FROM model_requests WHERE id=$1",
+          [pending.id],
+        )
+      ).rows[0].state,
+      "unknown",
+    );
+    const recoveredExecution = new ExecutionStore(target, c.registry);
+    const recoveredLease = await recoveredExecution.claim(c.engine.id);
+    assert.equal(recoveredLease?.id, modelTask.id);
+    assert.ok(recoveredLease);
+    await assert.rejects(
+      new ModelRequestStore(target).begin(
+        recoveredLease,
+        step,
+        c.engine.id,
+        { resourceId: c.engine.id },
+        Date.now() + 1000,
+        "recovery-fixture",
+      ),
+      { code: "MODEL_REMOTE_UNCERTAIN" },
+    );
     await mkdir("test-results", { recursive: true });
     const report = {
       passed: true,
@@ -168,6 +222,7 @@ try {
       objects: 2,
       revisionPreserved: true,
       idempotencyPreserved: true,
+      modelQuarantinePreserved: true,
       elapsedMs: Math.round(performance.now() - started),
     };
     await writeFile(
