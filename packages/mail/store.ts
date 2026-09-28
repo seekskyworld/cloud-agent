@@ -9,6 +9,8 @@ export interface OutboxRow {
   mailbox: string;
   task_id: string | null;
   business_policy: string | null;
+  system_policy: string | null;
+  correlation_key: string | null;
   policy_version: string | null;
   command_key: string | null;
   actor_id: string | null;

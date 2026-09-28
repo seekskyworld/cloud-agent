@@ -273,11 +273,17 @@ export class Worker {
     );
   }
   private async approve(task: Task, step: Step, tool: Tool): Promise<boolean> {
+    const input = step.request.kind === "tool" ? step.request.input : {};
+    const reason =
+      tool.approvalMessage?.(input) ??
+      `确认执行 ${tool.name}：${JSON.stringify(input)}`;
+    if (!reason.trim() || reason.length > 12000)
+      throw new Problem(422, "APPROVAL_MESSAGE_INVALID");
     return this.waits.suspend(task, step, {
       kind: "wait",
       key: step.key,
       waitKind: "approval",
-      reason: `确认执行 ${tool.name}：${JSON.stringify(step.request.kind === "tool" ? step.request.input : {})}`,
+      reason,
       schema: {
         type: "object",
         properties: { approved: { type: "boolean" } },

@@ -109,6 +109,8 @@ export type Tool = {
   effect: "read" | "idempotent_write" | "reconcilable_write" | "unsafe_write";
   timeoutMs: number;
   approval?: boolean;
+  /** 纯函数：呈现已绑定参数；更改语义须升级工具/模块版本。 */
+  approvalMessage?(input: Data): string;
   execute(input: Data, context: ExecutionContext): Promise<Outcome>;
   reconcile?: (input: Data, context: ExecutionContext) => Promise<Outcome>;
 };

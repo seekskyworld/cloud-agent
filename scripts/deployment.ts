@@ -1,6 +1,6 @@
 /** 静态配置的审阅/修订/切换入口，使用操作员显式指定的当前修订防止覆盖并发发布。 */
 import "dotenv/config";
-import { createContainer } from "../apps/container.js";
+import { createApplication } from "../apps/application.js";
 import { loadConfig } from "../apps/config.js";
 import {
   Deployments,
@@ -16,7 +16,7 @@ if (operation !== "plan") {
     throw new Error("MIGRATION_DATABASE_URL_REQUIRED");
   config.DATABASE_URL = process.env.MIGRATION_DATABASE_URL;
 }
-const c = await createContainer(config);
+const c = await createApplication(config);
 try {
   const deployments = new Deployments(c.db),
     manifest = c.registry.deployment();

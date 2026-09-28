@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 /** 附加令牌有独立撤销和期限；不复制角色或能力，服务身份使用独立平台主体。 */
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Database } from "../persistence/database.js";
@@ -5,7 +6,12 @@ import { tokenHash } from "../contracts/fingerprint.js";
 import { Problem, type Principal } from "../contracts/index.js";
 export class PrincipalTokens {
   constructor(private db: Database) {}
-  async create(actor: Principal, name: string, days: number) {
+  async create(
+    actor: Principal,
+    name: string,
+    days: number,
+    client: Pick<PoolClient, "query"> = this.db.pool,
+  ) {
     if (
       !actor.enabled ||
       !name.trim() ||
@@ -18,7 +24,7 @@ export class PrincipalTokens {
     const token = randomBytes(32).toString("base64url"),
       id = randomUUID();
     const row = (
-      await this.db.pool.query(
+      await client.query(
         "WITH created AS (INSERT INTO principal_tokens(id,workspace_id,principal_id,token_hash,name,expires_at) SELECT $1,$2,$3,$4,$5,now()+$6::integer*interval '1 day' WHERE EXISTS(SELECT 1 FROM principals WHERE workspace_id=$2 AND id=$3 AND enabled) RETURNING id,name,expires_at), audit AS (INSERT INTO token_audit(workspace_id,principal_id,token_id,action) SELECT $2,$3,id,'create' FROM created) SELECT * FROM created",
         [id, actor.workspace_id, actor.id, tokenHash(token), name, days],
       )

@@ -47,6 +47,20 @@ export class CloudAgentClient {
     }
     return response;
   }
+  async conversation(id: string) {
+    const response = await this.send(
+      `/conversations/${Id.parse({ id }).id}/messages`,
+    );
+    return z
+      .array(
+        z.object({
+          id: z.coerce.string(),
+          role: z.string(),
+          content: z.json(),
+        }),
+      )
+      .parse(await response.json());
+  }
   /** 业务扩展接口仍通过同一认证通道；写请求显式提供稳定请求键。 */
   async business<T>(
     packageId: string,

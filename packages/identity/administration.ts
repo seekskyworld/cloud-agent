@@ -1,3 +1,4 @@
+import type { PoolClient } from "pg";
 /** 通用管理面只授权工作区内身份管理；业务数据与工具继续按显式能力和领域 ACL 授权。 */
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
@@ -71,6 +72,7 @@ export class AdministrationService {
     actor: Principal,
     input: unknown,
     requestKey: string,
+    client: Pick<PoolClient, "query"> = this.db.pool,
   ): Promise<ManagedPrincipal> {
     await this.authorize(actor, "identity:manage");
     const body = AccessChange.parse(input);
@@ -81,7 +83,7 @@ export class AdministrationService {
     const capabilities = [...new Set(body.capabilities)].sort();
     try {
       return (
-        await this.db.pool.query<{ result: ManagedPrincipal }>(
+        await client.query<{ result: ManagedPrincipal }>(
           "SELECT manage_principal_access($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) AS result",
           [
             actor.workspace_id,

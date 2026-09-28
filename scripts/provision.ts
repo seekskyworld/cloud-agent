@@ -26,6 +26,12 @@ try {
       "GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO cloud_agent_app",
     );
     await client.query(
+      "REVOKE INSERT,UPDATE,DELETE ON identity_registration_policies,identity_bindings FROM cloud_agent_app",
+    );
+    await client.query(
+      "GRANT EXECUTE ON FUNCTION register_verified_identity(text,text,text) TO cloud_agent_app",
+    );
+    await client.query(
       "REVOKE ALL ON principals,schema_migrations,business_migrations,administration_audit,administration_commands FROM cloud_agent_app",
     );
     await client.query(

@@ -150,6 +150,7 @@ export class Registry {
         version: t.version,
         effect: t.effect,
         approval: t.approval ?? false,
+        ...(t.approvalMessage ? { approvalMessage: true } : {}),
         capability: t.capability,
         input: z.toJSONSchema(t.input),
         output: z.toJSONSchema(t.output),

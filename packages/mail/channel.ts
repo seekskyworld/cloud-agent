@@ -1,3 +1,6 @@
+import { SystemMail } from "./system.js";
+import type { MailHooks } from "./hooks.js";
+import { requireCapability } from "../contracts/index.js";
 /** 可选邮件通道复用任务与等待服务；收取、通知、发送分别加锁，业务编排不认识邮件供应商。 */
 import { ChannelTasks } from "../channels/tasks.js";
 import type { PoolClient } from "pg";
@@ -19,6 +22,7 @@ import { MailNotifications } from "./notifications.js";
 export class MailChannel {
   readonly notifications: MailNotifications;
   readonly business: BusinessMail;
+  readonly system: SystemMail;
   private gateway: ChannelTasks;
   constructor(
     readonly store: MailStore,
@@ -34,7 +38,9 @@ export class MailChannel {
       },
     }),
     policies: readonly BusinessMailPolicy[] = [],
+    private hooks: MailHooks = {},
   ) {
+    this.system = new SystemMail(store, hooks.systemPolicies ?? []);
     this.gateway = new ChannelTasks(identity, service);
     this.business = new BusinessMail(store, identity, policies);
     this.notifications = new MailNotifications(
@@ -43,6 +49,8 @@ export class MailChannel {
       service,
       provider,
       this.business,
+      hooks,
+      this.system,
     );
   }
   verifyWebhook(raw: Buffer, headers: Record<string, unknown>) {
@@ -265,22 +273,32 @@ export class MailChannel {
       throw new Problem(403, "MAIL_SENDER_UNTRUSTED");
     if (await this.business.receive(message)) return;
     if (message.automatic) throw new Problem(403, "MAIL_SENDER_UNTRUSTED");
-    const principal = await this.gateway.actor(
-      settings.workspace,
-      message.sender,
-      settings.bindings,
-      "mail:use",
-      "MAIL_IDENTITY_NOT_CONFIGURED",
-    );
+    const principal = this.hooks.resolveActor
+      ? await this.hooks.resolveActor(message.sender)
+      : await this.gateway.actor(
+          settings.workspace,
+          message.sender,
+          settings.bindings,
+          "mail:use",
+          "MAIL_IDENTITY_NOT_CONFIGURED",
+        );
+    if (principal.workspace_id !== settings.workspace)
+      throw new Problem(403, "MAIL_WORKSPACE_MISMATCH");
+    requireCapability(principal, "mail:use");
     const key = `mail:${fingerprint([this.store.id, message.deduplicationId ?? message.id])}`;
     const linked = await this.store.linkedReply(message, principal);
     const previous = linked?.task_id
       ? { ...linked, task_id: linked.task_id }
       : undefined;
     const response = previous?.wait_id
-      ? previous.task_status === "waiting_approval"
-        ? approval(message.text)
-        : input(message.text)
+      ? this.hooks.parseReply
+        ? this.hooks.parseReply(message, {
+            id: previous.wait_id,
+            kind: previous.task_status,
+          })
+        : previous.task_status === "waiting_approval"
+          ? approval(message.text)
+          : input(message.text)
       : undefined;
     const taskId = await this.gateway.submit({
       principal,
@@ -290,7 +308,11 @@ export class MailChannel {
       title: message.subject,
       route: () => this.route(message, principal),
       reply: previous
-        ? { taskId: previous.task_id, waitId: previous.wait_id, response }
+        ? {
+            taskId: previous.task_id,
+            waitId: response ? previous.wait_id : undefined,
+            response,
+          }
         : undefined,
     });
     await this.store.finish(message, taskId, principal.id);

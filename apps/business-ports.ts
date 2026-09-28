@@ -1,3 +1,4 @@
+import type { ConversationContext } from "../packages/runtime/conversation-context.js";
 /** 接入方唯一的领域端口工厂；业务模块仍只获取自己声明的类型化端口。 */
 import type { PortBinding } from "../packages/business/application.js";
 import type { Database } from "../packages/persistence/database.js";
@@ -12,6 +13,7 @@ export interface BusinessPortContext {
   db: Database;
   identity: IdentityService;
   tasks: TaskService;
+  conversations: ConversationContext;
   transactions: BusinessTransactions;
   mails: readonly MailChannel[];
   resources: Resources;

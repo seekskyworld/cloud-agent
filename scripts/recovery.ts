@@ -4,7 +4,7 @@ import { spawn } from "node:child_process";
 import { createReadStream, createWriteStream } from "node:fs";
 import { pipeline } from "node:stream/promises";
 import { join } from "node:path";
-import { createContainer } from "../apps/container.js";
+import { createApplication } from "../apps/application.js";
 import { loadConfig } from "../apps/config.js";
 import {
   exportBundle,
@@ -27,7 +27,7 @@ if (operation === "verify") {
     url = process.env.MIGRATION_DATABASE_URL;
   if (!url) throw new Error("MIGRATION_DATABASE_URL_REQUIRED");
   config.DATABASE_URL = url;
-  const c = await createContainer(config),
+  const c = await createApplication(config),
     connection = new URL(url);
   const args = ["compose", "exec", "-T", "db"];
   const common = [

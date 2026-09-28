@@ -22,6 +22,7 @@ import type {
 const Input = z
   .object({
     key: z.string().min(1).max(200),
+    correlationKey: z.string().min(1).max(200).optional(),
     recipient: z.email().transform((v) => v.toLowerCase()),
     subject: z
       .string()
@@ -149,8 +150,8 @@ export class BusinessMail {
       version: policy.version,
     });
     const result = await client.query<{ id: string; request_hash: string }>(
-      `INSERT INTO public.mail_outbox(id,mailbox,business_policy,policy_version,command_key,request_hash,actor_id,source_task,wait_key,purpose,metadata,recipient,reply_to,subject,body,state)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+      `INSERT INTO public.mail_outbox(id,mailbox,business_policy,policy_version,command_key,request_hash,actor_id,source_task,wait_key,purpose,metadata,recipient,reply_to,subject,body,state,correlation_key)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
        ON CONFLICT(mailbox,business_policy,command_key) WHERE business_policy IS NOT NULL DO UPDATE SET command_key=EXCLUDED.command_key
        RETURNING id,request_hash`,
       [
@@ -170,6 +171,7 @@ export class BusinessMail {
         input.subject,
         input.body,
         this.store.settings.sendEnabled ? "pending" : "draft",
+        input.correlationKey ?? null,
       ],
     );
     const row = result.rows[0]!;
@@ -204,21 +206,24 @@ export class BusinessMail {
         !task.execution_scope.includes(policy.capability))
     )
       throw new Problem(409, "MAIL_SOURCE_INACTIVE");
+    const scoped = {
+      ...principal,
+      capabilities: principal.capabilities.filter(
+        (c) => !task.execution_scope || task.execution_scope.includes(c),
+      ),
+    };
     await bounded(
       5000,
-      (s) =>
-        policy.authorize(
-          this.input(row),
-          {
-            ...principal,
-            capabilities: principal.capabilities.filter(
-              (c) => !task.execution_scope || task.execution_scope.includes(c),
-            ),
-          },
-          s,
-        ),
+      (s) => policy.authorize(this.input(row), scoped, s),
       signal,
     );
+    if (policy.authorizeDelivery) {
+      await bounded(
+        5000,
+        (s) => policy.authorizeDelivery!(this.input(row), scoped, s),
+        signal,
+      );
+    }
     return {
       id: row.id,
       recipient: row.recipient,
@@ -235,10 +240,23 @@ export class BusinessMail {
     );
     if (!policy) return false;
     if (!message.authenticated) throw new Problem(403, "MAIL_SENDER_UNTRUSTED");
+    const related = message.inReplyTo
+      ? (
+          await this.store.db.pool.query<OutboxRow>(
+            "SELECT * FROM public.mail_outbox WHERE mailbox=$1 AND business_policy=$2 AND recipient=$3 AND (provider_id=$4 OR '<'||id::text||'@cloud-agent.local>'=$4)",
+            [this.store.id, policy.id, message.sender, message.inReplyTo],
+          )
+        ).rows[0]
+      : undefined;
     const parsed = z
       .object({ key: z.string().min(1).max(200), response: DataSchema })
       .strict()
-      .parse(policy.receipt!.parse(message));
+      .parse(
+        await policy.receipt!.parse(
+          message,
+          related ? this.input(related) : undefined,
+        ),
+      );
     const eventKey = message.deduplicationId ?? message.id;
     const digest = fingerprint({
       sender: message.sender,
@@ -249,7 +267,7 @@ export class BusinessMail {
     await this.store.db.transaction(async (client) => {
       const row = (
         await client.query<OutboxRow & { state: string }>(
-          "SELECT * FROM public.mail_outbox WHERE mailbox=$1 AND business_policy=$2 AND command_key=$3",
+          "SELECT * FROM public.mail_outbox WHERE mailbox=$1 AND business_policy=$2 AND (correlation_key=$3 OR (correlation_key IS NULL AND command_key=$3))",
           [this.store.id, policy.id, parsed.key],
         )
       ).rows[0];
@@ -305,6 +323,7 @@ export class BusinessMail {
   private input(row: OutboxRow): BusinessMailInput {
     return {
       key: row.command_key!,
+      correlationKey: row.correlation_key ?? undefined,
       recipient: row.recipient,
       subject: row.subject,
       body: row.body,

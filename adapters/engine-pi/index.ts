@@ -16,8 +16,15 @@ import {
   retryAfter,
 } from "../../packages/contracts/failure.js";
 /** Pi 只执行一轮模型请求；工具与检查点由平台持有，SDK 私有类型不出适配层。 */
+import { streamSimple as responses } from "@earendil-works/pi-ai/api/openai-responses";
 import { streamSimple as completions } from "@earendil-works/pi-ai/api/openai-completions";
-import type { Message, Model, Usage } from "@earendil-works/pi-ai";
+import type {
+  Message,
+  Model,
+  Usage,
+  Context,
+  SimpleStreamOptions,
+} from "@earendil-works/pi-ai";
 import { Type } from "typebox";
 import { z } from "zod";
 import {
@@ -43,9 +50,10 @@ export class PiEngine implements ModelEngine {
   readonly id: string;
   readonly lifecycle: ModelLifecyclePolicy;
   readonly control?: ModelControl;
-  private model: Model<"openai-completions">;
+  private model: Model<"openai-completions"> | Model<"openai-responses">;
   constructor(
     private config: {
+      protocol?: "completions" | "responses";
       baseUrl: string;
       apiKey: string;
       model: string;
@@ -64,7 +72,7 @@ export class PiEngine implements ModelEngine {
       reasoning: config.reasoningLevels ?? ["none"],
       cache: true,
     };
-    this.id = `pi:0.85.1:lifecycle-v1:${config.model}:${fingerprint({ baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels })}`;
+    this.id = `pi:0.85.1:lifecycle-v2:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels })}`;
     this.lifecycle = config.lifecycle ?? {
       resourceId: `pi:${fingerprint(config.baseUrl)}`,
       firstOutputTimeoutMs: 90000,
@@ -75,7 +83,10 @@ export class PiEngine implements ModelEngine {
     this.model = {
       id: config.model,
       name: config.model,
-      api: "openai-completions",
+      api:
+        config.protocol === "responses"
+          ? "openai-responses"
+          : "openai-completions",
       provider: "openai",
       baseUrl: config.baseUrl,
       reasoning:
@@ -151,77 +162,81 @@ export class PiEngine implements ModelEngine {
     let httpFailure: ExecutionFailure | undefined;
     if (this.config.managed && !context?.invocation)
       throw new Problem(422, "MODEL_INVOCATION_REQUIRED");
-    const stream = completions(
-      this.model,
-      {
-        systemPrompt: request.instructions,
-        messages: request.messages.map((message) => this.message(message)),
-        tools: tools.map((tool) => ({
-          name: wireName(tool.name),
-          description: tool.description,
-          parameters: Type.Unsafe(z.toJSONSchema(tool.input)),
-        })),
-      },
-      {
-        apiKey: this.config.apiKey,
-        headers:
-          this.config.managed && context?.invocation
-            ? managedHeaders(this.config.managed, context.invocation)
-            : undefined,
-        signal,
-        timeoutMs: request.timeoutMs,
-        maxTokens: request.maxOutputTokens ?? 2048,
-        reasoning: request.reasoning === "none" ? undefined : request.reasoning,
-        cacheRetention: request.cache === "default" ? undefined : "none",
-        maxRetries: 0,
-        // OpenAI 兼容网关对缺省字段和显式空数组的处理可能不同；在适配器边界固定请求语义。
-        onPayload: (payload) => {
-          if (!payload || typeof payload !== "object" || Array.isArray(payload))
-            return payload;
-          const body = { ...(payload as Record<string, unknown>) };
-          body.tools = Array.isArray(body.tools) ? body.tools : [];
+    const modelContext: Context = {
+      systemPrompt: request.instructions,
+      messages: request.messages.map((message) => this.message(message)),
+      tools: tools.map((tool) => ({
+        name: wireName(tool.name),
+        description: tool.description,
+        parameters: Type.Unsafe(z.toJSONSchema(tool.input)),
+      })),
+    };
+    const streamOptions: SimpleStreamOptions = {
+      apiKey: this.config.apiKey,
+      headers:
+        this.config.managed && context?.invocation
+          ? managedHeaders(this.config.managed, context.invocation)
+          : undefined,
+      signal,
+      timeoutMs: request.timeoutMs,
+      maxTokens: request.maxOutputTokens ?? 2048,
+      reasoning: request.reasoning === "none" ? undefined : request.reasoning,
+      cacheRetention: request.cache === "default" ? undefined : "none",
+      maxRetries: 0,
+      // OpenAI 兼容网关对缺省字段和显式空数组的处理可能不同；在适配器边界固定请求语义。
+      onPayload: (payload) => {
+        if (!payload || typeof payload !== "object" || Array.isArray(payload))
+          return payload;
+        const body = { ...(payload as Record<string, unknown>) };
+        body.tools = Array.isArray(body.tools) ? body.tools : [];
+        if (this.model.api === "openai-completions")
           body.reasoning_effort = request.reasoning ?? "none";
-          if (request.cache === "disabled" || request.cache === undefined) {
-            delete body.prompt_cache_key;
-            delete body.prompt_cache_retention;
-          }
-          return body;
-        },
-        // SDK 将 HTTP 异常转成流结束事件；在传输边界保留状态，避免依赖可能含秘密的错误正文。
-        fetch: async (input, init) => {
-          const response = await fetch(input, { ...init, redirect: "error" });
-          if (this.config.managed && context?.invocation)
-            verifyManagedResponse(response, context.invocation.id);
-          if (!response.ok)
-            httpFailure = new ExecutionFailure(
-              response.status === 429
-                ? "rate_limited"
-                : [401, 403].includes(response.status)
-                  ? "authorization"
-                  : [408, 425].includes(response.status)
-                    ? "transient"
-                    : response.status < 500
-                      ? "permanent"
-                      : "transient",
-              response.status === 408 || response.status === 425
-                ? "MODEL_QUEUE_TIMEOUT"
-                : response.status === 504
-                  ? "MODEL_EXECUTION_TIMEOUT"
-                  : "MODEL_HTTP_REJECTED",
-              {
-                retryAfterMs:
-                  response.status === 504
-                    ? Math.max(
-                        5_000,
-                        retryAfter(response.headers.get("retry-after")) ?? 0,
-                      )
-                    : retryAfter(response.headers.get("retry-after")),
-              },
-            );
-          return response;
-        },
+        else if (request.reasoning && request.reasoning !== "none")
+          body.reasoning = { effort: request.reasoning };
+        if (request.cache === "disabled" || request.cache === undefined) {
+          delete body.prompt_cache_key;
+          delete body.prompt_cache_retention;
+        }
+        return body;
       },
-    );
+      // SDK 将 HTTP 异常转成流结束事件；在传输边界保留状态，避免依赖可能含秘密的错误正文。
+      fetch: async (input, init) => {
+        const response = await fetch(input, { ...init, redirect: "error" });
+        if (this.config.managed && context?.invocation)
+          verifyManagedResponse(response, context.invocation.id);
+        if (!response.ok)
+          httpFailure = new ExecutionFailure(
+            response.status === 429
+              ? "rate_limited"
+              : [401, 403].includes(response.status)
+                ? "authorization"
+                : [408, 425].includes(response.status)
+                  ? "transient"
+                  : response.status < 500
+                    ? "permanent"
+                    : "transient",
+            response.status === 408 || response.status === 425
+              ? "MODEL_QUEUE_TIMEOUT"
+              : response.status === 504
+                ? "MODEL_EXECUTION_TIMEOUT"
+                : "MODEL_HTTP_REJECTED",
+            {
+              retryAfterMs:
+                response.status === 504
+                  ? Math.max(
+                      5_000,
+                      retryAfter(response.headers.get("retry-after")) ?? 0,
+                    )
+                  : retryAfter(response.headers.get("retry-after")),
+            },
+          );
+        return response;
+      },
+    };
+    const stream =
+      this.model.api === "openai-responses"
+        ? responses(this.model, modelContext, streamOptions)
+        : completions(this.model, modelContext, streamOptions);
     const output = await consumeModelStream(stream, signal, context?.progress);
     if (httpFailure) throw httpFailure;
     await reportUsage(output, context);

@@ -35,7 +35,7 @@
 
 ## 宿主装配与同库事务
 
-[createBusinessPorts](../apps/business-ports.ts) 现在接收 `BusinessPortContext`：config、db、identity、tasks、transactions、mails、resources。默认返回空清单。也可通过 `createContainer(config, {portFactory})` 提供同步或异步工厂；与显式 ports 二选一。`businessPortIds` 仍用于默认 CLI 离线诊断，须同步登记端口名。
+[createBusinessPorts](../apps/business-ports.ts) 现在接收 `BusinessPortContext`：config、db、identity、tasks、conversations、transactions、mails、resources。默认返回空清单。也可通过 `createContainer(config, {portFactory})` 提供同步或异步工厂；与显式 ports 二选一。`businessPortIds` 仍用于默认 CLI 离线诊断，须同步登记端口名。
 
 宿主工厂选择已装配的邮箱，创建领域仓储并返回 PortBinding。将自行创建的资源用 `resources.add(() => resource.close())` 登记，宿主会逆序释放。端口 identity 应包含实际资源身份和协议版本，不包含秘密；`requires` 和 `definePort` 继续检查协议。不要让模型或 HTTP 请求选择数据库、邮箱凭据或端口实现。
 
@@ -126,7 +126,7 @@ ReceiptSchema 和 assertMatches 由业务定义；此片段展示接口形状，
 
 宿主可通过 `createContainer(config, {identityFactory})` 获取 BusinessPortContext 并创建认证适配器。它与 identityProvider 二选一。可选 [CookieIdentityProvider](../packages/identity/cookie.ts) 包装现有 Bearer 认证及可信会话解析器：Cookie 写请求校验 Origin，支持 HttpOnly/Secure/SameSite、设置和清除 Cookie；默认 HTTPS cookie 使用 __Host- 前缀。Bearer 优先且失败不回退 Cookie，不允许使用共享 local 身份作后备。
 
-邮箱验证码、组织 SSO 或其他登录流程仍由部署方选择。通过 `createApp(container, {registerAuthentication})` 注册隔离的可信登录/退出路由；登录握手也须自行校验 Origin、限制尝试次数并保护凭据。成功后把现有已授权主体的服务端令牌/会话放入 Cookie，不得复用 bootstrap 或共享管理员令牌；解析器返回主体引用，不能接受客户端自报角色。退出须撤销服务端令牌/会话再清 Cookie；只清浏览器 Cookie 不等于撤销。生产 AUTH_MODE 使用 token；没有增加验证码表、第二套用户库或公开注册默认策略。
+邮箱验证码、组织 SSO 或其他登录流程仍由部署方选择。通过 `createApp(container, {registerAuthentication})` 注册隔离的可信登录/退出路由；登录握手也须自行校验 Origin、限制尝试次数并保护凭据。成功后把现有已授权主体的服务端令牌/会话放入 Cookie，不得复用 bootstrap 或共享管理员令牌；解析器返回主体引用，不能接受客户端自报角色。退出须撤销服务端令牌/会话再清 Cookie；只清浏览器 Cookie 不等于撤销。生产 AUTH_MODE 使用 token；可选 EmailLogin 复用主体和令牌体系，仅增加验证码挑战表，不默认开放注册政策。
 
 业务包 `publicReads` 显式声明 id、input、output、handle，挂载 GET `/public/business/<包>/<id>`，不提供主体、不绕过既有受保护 routes。output Schema 必须只含公开字段。现有 routes 仍位于 `/v1/business/...` 并检查当前主体能力。公共只读接口不自动纳入旧 v1 OpenAPI，调用方按包的声明对接。
 
@@ -149,3 +149,33 @@ ReceiptSchema 和 assertMatches 由业务定义；此片段展示接口形状，
 SDK major 仍为 1，本次增加可选贡献字段和公开类型，不删除旧签名。严格声明基线会要求审阅新增声明；本轮未改写兼容基线。单个邮箱内同一邮件策略当前只装配一个版本；升级策略前先排空或核实在途邮件，不混跑不同策略版本的发送器。采用这些新端口或邮件语义的业务应升级版本及端口 identity，不将旧在途任务静默切换到新协议。
 
 本轮遵循不运行测试的要求。类型检查与静态检查只验证源码层面；数据库迁移、真实并发、邮件协议、浏览器、SDK 制品和备份恢复都需要在上线前另行验收。
+
+## 共享模型理解、登录与会话（新增，尚未运行测试）
+
+- 自然语言入口返回同一模块的 `{text}` 输入，在 `Module.next` 中产生 `kind:"model"`；使用 `outputSchema` 返回结构化意图。模型只解释，领域工具校验身份、资源版本和参数；写入工具设置 `approval:true`。不要在 HTTP 或邮件循环中另写模型调用循环。
+- Pi 支持 `MODEL_OPTIONS={"protocol":"responses"}`，默认仍是 `completions`。`LLM_BASE_URL` 填供应商实际 API 根路径，框架不猜测或拼接 `/v1`。协议进入配置指纹；本次 Pi 引擎标识更新为 `lifecycle-v2`，存量模型任务需在旧 Worker 排空或保留兼容实例，不直接改检查点。
+- `BusinessPortContext.conversations.read(principal,taskId)` 提供同会话此前成功任务的有限历史（默认 12、最多 24 条，合计 24K 字符）。每条重新检查当前领域 ACL；历史是不可信引用，不能自动重放指令。它不是长期记忆或自动摘要。
+- `Tool.approvalMessage(input)` 可用纯函数呈现确认摘要；框架仍绑定全部实际参数。更改格式所代表的操作语义须升级工具和模块版本。
+- `ConversationPanel` 从 `cloud-agent/ui` 导出，使用 `CloudAgentClient`，支持文本提交、历史、同会话继续、确认/拒绝及取消；模块需要接收 `{text:string}`。进度为任务轮询，没有 token 流式显示。
+
+### 邮件和邮箱登录的宿主组合
+
+通过 `createContainer(config,{mailFactory})` 获取数据库、身份与 TaskService，返回既有 MailChannel 的账户配置。`hooks` 可注入经过认证发件人的注册映射、收件人复核、回复解析及通知格式。邮件的认证、去重、线程、等待与发送恢复仍由框架负责；正文不得选择身份。`parseReply` 只有在可信回复绑定了原等待时才调用，返回 `undefined` 表示在原会话创建新任务，不执行确认。
+
+`VerifiedIdentities(db,policy)` 使用迁移账号预置的 `identity_registration_policies`；运行账号只能通过 `register_verified_identity` 创建普通主体及不可变绑定，不可自定初始角色/能力。宿主只能在可靠身份验证后调用 `enrollVerified`，不要把裸 From 或请求参数视作验证凭据。
+
+`EmailLogin` + `registerEmailLogin` + `CookieIdentityProvider` 提供可选邮箱验证码登录。会话复用 `principal_tokens`，验证码 10 分钟、最多 5 次，限邮箱/IP 请求频率；验证码经认证加密保存，仅投递前解密。凭据需要高熵服务端 secret，不能由模型/客户端提供。登录提供 `/auth/email/request`、`verify`、`logout`，都检查 Origin；代理需正确处理可信来源地址。
+
+登录等非任务邮件通过 `MailChannel.system`、静态 `SystemMailPolicy` 放入同一个 `mail_outbox`；队列保存引用，不保存验证码明文。它是可信宿主端口，不向模型提供任意发信工具。`prepare` 有 5 秒上限，策略版本改变或验证码过期会拒绝投递。`SHOP` 等领域名不属于框架接口。
+
+### 请求关联、投递及恢复
+
+`BusinessMailInput.correlationKey` 用于外部协议的业务请求编号，和框架步骤 `key` 分开；均持久化并有唯一约束。`receipt.parse(message,related)` 可读取由真实 In-Reply-To 关联的原请求。解析仍需精确匹配服务发件人、参数和结果；重发相同业务请求不能换请求编号。
+
+`BusinessMailPolicy.authorize` 在入队和投递前执行；入队时不能通过另一条数据库连接读取尚未提交的新领域记录。可选 `authorizeDelivery` 专门检查投递前已提交的领域状态。所有校验只读、有界；请求或来源任务失效会取消尚未发出的邮件。业务通过已有 `BusinessJob` 消费投递终态，决定是否释放预留；框架不猜测领域补偿。
+
+`BusinessTransactions.run` 对业务 `Problem` 且已成功回滚的情形标记明确未提交；提交失联、回滚失败及未知异常继续按未知写入处理。不得在回调执行网络动作。
+
+迁移 `032_application_channels.sql` 必须先应用并重新运行 provision，再应用业务迁移。验证码到期密文在后续登录请求及框架正文退役时清理；90 天以上挑战记录在正文退役时删除。领域收货信息、归档旧表、日志和供应商副本需要各自保留策略，框架退役不等于删除第三方邮件。
+
+API、Worker 和部署/恢复/业务检查等运维命令共用 `apps/application.ts` 装配入口；默认导出 `createContainer`。业务宿主应在这里统一选择自己的工厂，避免运行时已注入领域端口而检查脚本仍使用默认空端口。

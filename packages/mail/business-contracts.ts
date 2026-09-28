@@ -3,6 +3,7 @@ import type { Data, Principal } from "../contracts/index.js";
 import type { MailMessage } from "./contracts.js";
 export interface BusinessMailInput {
   key: string;
+  correlationKey?: string;
   recipient: string;
   subject: string;
   body: string;
@@ -21,12 +22,23 @@ export interface BusinessMailPolicy {
     principal: Principal,
     signal: AbortSignal,
   ): Promise<void>;
+  /** 可选的已提交领域状态检查，仅在实际投递前调用；不能假设入队事务已提交。 */
+  authorizeDelivery?(
+    input: BusinessMailInput,
+    principal: Principal,
+    signal: AbortSignal,
+  ): Promise<void>;
   receipt?: {
     sender: string;
     /** 已存在的服务主体，须有 task:signal 及策略能力；不是任务所有者。 */
     principal: string;
     /** 严格解析业务协议。返回的 key 仅用于查找已持久化请求，不授予任务访问权。 */
-    parse(message: MailMessage): { key: string; response: Data };
+    parse(
+      message: MailMessage,
+      related?: BusinessMailInput,
+    ):
+      | { key: string; response: Data }
+      | Promise<{ key: string; response: Data }>;
     validate(response: Data, request: BusinessMailInput): void;
   };
 }

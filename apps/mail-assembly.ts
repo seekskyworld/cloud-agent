@@ -1,3 +1,4 @@
+import type { MailHooks } from "../packages/mail/hooks.js";
 /** 邮件兼容装配单独维护，显式注入优先于环境默认值。 */
 import { businessMailPolicies } from "./mail-policies.js";
 import { createMailAccount } from "./mail-factory.js";
@@ -20,6 +21,7 @@ export type MailExtension = {
   provider: MailProvider;
   route?: MailRouter;
   policies?: readonly BusinessMailPolicy[];
+  hooks?: MailHooks;
 };
 export async function assembleMail(
   config: Config,
@@ -43,6 +45,7 @@ export async function assembleMail(
     provider: MailProvider;
     route?: MailRouter;
     policies?: readonly BusinessMailPolicy[];
+    hooks?: MailHooks;
   }[] =
     extensions.mails ??
     (extensions.mail
@@ -72,6 +75,7 @@ export async function assembleMail(
         options.route,
         options.policies ??
           businessMailPolicies[options.settings.id ?? options.settings.inbox],
+        options.hooks,
       ),
   );
 

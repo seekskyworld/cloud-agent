@@ -99,6 +99,12 @@ export class DataRetention {
       await client.query(
         "UPDATE agent_memories SET content='',deleted_at=coalesce(deleted_at,now()) WHERE expires_at<=now() AND deleted_at IS NULL",
       );
+      await client.query(
+        "UPDATE identity_email_challenges SET sealed_code='',code_hash='' WHERE expires_at<=now() AND (sealed_code<>'' OR code_hash<>'')",
+      );
+      await client.query(
+        "DELETE FROM identity_email_challenges WHERE created_at<now()-interval '90 days'",
+      );
       return { candidates: rows.map((r) => r.id), retired: rows.length };
     });
   }

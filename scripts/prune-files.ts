@@ -1,10 +1,10 @@
 /** 所有已注册存储逐一预览/清理，单次每个存储最多删除 100 个过期对象。 */
 import "dotenv/config";
 import { loadConfig } from "../apps/config.js";
-import { createContainer } from "../apps/container.js";
+import { createApplication } from "../apps/application.js";
 const config = loadConfig();
 config.DATABASE_URL = process.env.MIGRATION_DATABASE_URL ?? config.DATABASE_URL;
-const container = await createContainer(config);
+const container = await createApplication(config);
 try {
   if (!container.stores.size) throw new Error("ARTIFACT_STORE_DISABLED");
   for (const [id, files] of container.stores) {

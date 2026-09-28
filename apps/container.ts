@@ -1,3 +1,4 @@
+import { ConversationContext } from "../packages/runtime/conversation-context.js";
 import { FileDownloads } from "../packages/artifacts/downloads.js";
 import { Memories } from "../packages/context/memory.js";
 import { TaskGroups } from "../packages/persistence/groups.js";
@@ -73,6 +74,12 @@ import { MailHub } from "../packages/mail/hub.js";
 import type { Config } from "./config.js";
 /** extensions 可替换模块和模型实现；资源由调用方创建并负责关闭，版本变化须同步更新 profile。 */
 export interface ContainerExtensions {
+  mailFactory?: (context: {
+    db: Database;
+    identity: IdentityService;
+    tasks: TaskService;
+    config: Config;
+  }) => Promise<MailExtension[]> | MailExtension[];
   identityProvider?: IdentityProvider;
   identityFactory?: (context: BusinessPortContext) => IdentityProvider;
   modules?: Module[];
@@ -215,7 +222,16 @@ async function assemble(
   );
   const mails = await assembleMail(
     config,
-    extensions,
+    extensions.mailFactory
+      ? {
+          mails: await extensions.mailFactory({
+            db,
+            identity,
+            tasks: service,
+            config,
+          }),
+        }
+      : extensions,
     db,
     identity,
     service,
@@ -228,6 +244,7 @@ async function assemble(
     db,
     identity,
     tasks: service,
+    conversations: new ConversationContext(db, service),
     transactions,
     mails,
     resources,

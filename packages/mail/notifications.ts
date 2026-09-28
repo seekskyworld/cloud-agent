@@ -1,3 +1,4 @@
+import type { MailHooks } from "./hooks.js";
 /** 持久通知只由任务状态生成；发送前再次检查身份、资源可见性及等待是否仍有效。 */
 import { sendPending } from "./delivery.js";
 import type { BusinessMail } from "./business.js";
@@ -17,6 +18,8 @@ export class MailNotifications {
     private service: TaskService,
     private provider: MailProvider,
     private business?: BusinessMail,
+    private hooks: MailHooks = {},
+    private system?: import("./system.js").SystemMail,
   ) {}
   private owner(row: NotificationCandidate): Principal {
     return {
@@ -28,7 +31,9 @@ export class MailNotifications {
     };
   }
   private async authorize(owner: Principal, recipient: string) {
-    if (this.store.settings.bindings[recipient] !== owner.id)
+    if (this.hooks.authorizeRecipient)
+      await this.hooks.authorizeRecipient(recipient, owner);
+    else if (this.store.settings.bindings[recipient] !== owner.id)
       throw new Problem(403, "MAIL_BINDING_REVOKED");
     const principal = await this.identity.current(owner.workspace_id, owner.id);
     requireCapability(principal, "mail:use");
@@ -54,6 +59,8 @@ export class MailNotifications {
       body = notice.waitId
         ? `${notice.reason}\n\n${notice.status === "waiting_approval" ? "直接回复 approve 或 reject（不要包含引用原文）。" : "直接回复符合以下结构的 JSON（不要包含引用原文）：\n" + JSON.stringify(notice.schema)}\n\n任务：${task.id}`
         : `任务：${task.id}\n状态：${task.status}\n${task.status === "succeeded" ? JSON.stringify(task.result, null, 2) : (task.error ?? "")}`;
+      if (this.hooks.renderNotification)
+        body = this.hooks.renderNotification(notice);
       if (body.length > 60_000) throw new Problem(422, "MAIL_RESULT_TOO_LARGE");
     } catch (e) {
       if (!(e instanceof Problem)) throw e;
@@ -76,6 +83,10 @@ export class MailNotifications {
   }
   async send(signal: AbortSignal) {
     return sendPending(this.store, this.provider, signal, async (row) => {
+      if (row.system_policy) {
+        if (!this.system) throw new Problem(409, "MAIL_POLICY_UNAVAILABLE");
+        return this.system.prepare(row, signal);
+      }
       if (row.business_policy) {
         if (!this.business) throw new Problem(409, "MAIL_POLICY_UNAVAILABLE");
         return this.business.prepare(row, signal);

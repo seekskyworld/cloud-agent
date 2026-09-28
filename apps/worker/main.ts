@@ -4,8 +4,8 @@ import { randomUUID } from "node:crypto";
 import { runLoop } from "../../packages/runtime/loop.js";
 import { ChannelHub } from "../../packages/channels/hub.js";
 import { loadConfig } from "../config.js";
-import { createContainer } from "../container.js";
-const container = await createContainer(loadConfig());
+import { createApplication } from "../application.js";
+const container = await createApplication(loadConfig());
 let stopping = false;
 let shutdownTimer: ReturnType<typeof setTimeout> | undefined;
 function stop() {

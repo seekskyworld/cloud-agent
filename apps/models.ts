@@ -15,6 +15,7 @@ const Demo = z
   .strict();
 export const ModelOptions = z
   .object({
+    protocol: z.enum(["completions", "responses"]).optional(),
     reasoningLevels: z
       .array(
         z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
@@ -80,7 +81,7 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
             return { baseUrl: c.endpoint, apiKey: bearer(c.secret) };
           }, config.managed)
         : undefined,
-      id: `pi:0.85.1:lifecycle-v1:${config.id}:${fingerprint({ config, connection: connections.definitions.find((c) => c.id === config.connection) })}`,
+      id: `pi:0.85.1:lifecycle-v2:${config.id}:${fingerprint({ config, connection: connections.definitions.find((c) => c.id === config.connection) })}`,
       capabilities: {
         progress: true,
         structuredOutput: "validated",
@@ -99,6 +100,7 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
           baseUrl: connection.endpoint,
           apiKey: bearer(connection.secret),
           model: config.model,
+          protocol: config.protocol,
           inputPrice: config.inputPrice,
           outputPrice: config.outputPrice,
           reasoning:
