@@ -1,6 +1,7 @@
 /** 业务资源别名只绑定可信部署配置；包配置与实际依赖身份一起进入恢复指纹。 */
 import type {
   BusinessApplications,
+  BusinessInstance,
   PortBinding,
 } from "../packages/business/application.js";
 import { fingerprint } from "../packages/persistence/database.js";
@@ -223,6 +224,7 @@ export async function assembleBusiness(
           input: r.input.toJSONSchema(),
           output: r.output.toJSONSchema(),
         })),
+        ...additionalContributions(instance),
         jobs: instance.jobs ?? [],
         pages: instance.pages ?? [],
       }),
@@ -252,5 +254,22 @@ function selectedDependencies(
     dependencies: Object.fromEntries(
       selection.bindings.map((key) => [key, dependencies[key]]),
     ),
+  };
+}
+
+function additionalContributions(instance: BusinessInstance) {
+  return {
+    ...((instance.publicReads?.length ?? 0)
+      ? {
+          publicReads: instance.publicReads!.map((r) => ({
+            id: r.id,
+            input: r.input.toJSONSchema(),
+            output: r.output.toJSONSchema(),
+          })),
+        }
+      : {}),
+    ...((instance.checks?.length ?? 0)
+      ? { checks: instance.checks!.map(({ id, phase }) => ({ id, phase })) }
+      : {}),
   };
 }

@@ -7,6 +7,7 @@
 | 运行示例、完成首次接入 | [入门教程](getting-started.md)、[项目 README](../README.md) |
 | 理解框架 | [架构](cloud-agent-architecture.md)、[分层评审与后续规划](architecture-decoupling-plan.md)、[开源对比与改进](open-source-readiness.md) |
 | 接业务、模型或外部系统 | [业务包与 SDK](extending.md#独立业务包与-sdk-v1)、[模块与适配器](modules.md) |
+| 编写业务代码并复用已有机制 | [业务复用指南](business-reuse.md)、[重构范围与状态](business-application-improvement-plan.md) |
 | 替换基础设施、多模型、文件与渠道 | [通用扩展](extending.md)（配置、模板与三个示例） |
 | 使用接口 | [HTTP API](api.md) |
 | 连接不同邮箱或扩展邮件供应商 | [邮件架构与调研](mail-architecture.md)、[接入配置](operations.md#可选邮件通道) |

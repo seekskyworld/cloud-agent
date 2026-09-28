@@ -1,4 +1,5 @@
 /** 邮件兼容装配单独维护，显式注入优先于环境默认值。 */
+import { businessMailPolicies } from "./mail-policies.js";
 import { createMailAccount } from "./mail-factory.js";
 import { AgentMail } from "../adapters/agentmail/client.js";
 import { MailChannel } from "../packages/mail/channel.js";
@@ -13,10 +14,12 @@ import type { Resources } from "../packages/extensions/registry.js";
 import type { Database } from "../packages/persistence/database.js";
 import type { IdentityService } from "../packages/identity/service.js";
 import type { TaskService } from "../packages/runtime/service.js";
+import type { BusinessMailPolicy } from "../packages/mail/business-contracts.js";
 export type MailExtension = {
   settings: MailSettings;
   provider: MailProvider;
   route?: MailRouter;
+  policies?: readonly BusinessMailPolicy[];
 };
 export async function assembleMail(
   config: Config,
@@ -39,6 +42,7 @@ export async function assembleMail(
     settings: MailSettings;
     provider: MailProvider;
     route?: MailRouter;
+    policies?: readonly BusinessMailPolicy[];
   }[] =
     extensions.mails ??
     (extensions.mail
@@ -66,6 +70,8 @@ export async function assembleMail(
         identity,
         service,
         options.route,
+        options.policies ??
+          businessMailPolicies[options.settings.id ?? options.settings.inbox],
       ),
   );
 

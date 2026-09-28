@@ -1,3 +1,4 @@
+import { businessPortIds } from "./business-ports.js";
 import {
   ResourceInventory,
   type ResourceDescriptor,
@@ -11,6 +12,10 @@ export function configuredResources(
   extensions: ContainerExtensions = {},
 ) {
   const entries: ResourceDescriptor[] = [];
+  for (const id of extensions.ports
+    ? Object.keys(extensions.ports)
+    : businessPortIds)
+    entries.push({ kind: "port", id, roles: ["api", "worker", "diagnostic"] });
   for (const item of config.connections ?? [])
     entries.push({
       kind: "connection",

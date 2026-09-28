@@ -72,7 +72,7 @@ MAIL_CREDENTIALS='{"service-key":{"kind":"api-key","apiKey":"replace-me"},"suppo
 
 标准邮箱首次默认跳过现有邮件；需要导入历史时显式 `startFrom:"all"`。只读 IMAP 使用 UIDVALIDITY/UID 持久游标，删除邮件不改变定位；标识周期变化时暂停，由超级管理员审计后重置。AgentMail 首次会扫描历史 received 邮件，建议专用邮箱；下载主机默认 `cdn.agentmail.to`，可通过账户的 `downloadHosts` 配置。
 
-标准入站独立校验完整 DKIM、From 域对齐及执行相关邮件头签名，不能只看来信自带 Authentication-Results；未签名、SPF-only 或被转发破坏签名的来信会隔离。AgentMail 使用供应商 DMARC 元数据。两者均拒绝自动回复、未绑定地址和歧义发件人；不采用 Reply-To/CC 作为回复收件人。原件上限 200 KB，正文最多 40,000 字符，附件不执行、不抽取。
+标准入站独立校验完整 DKIM、From 域对齐及执行相关邮件头签名，不能只看来信自带 Authentication-Results；未签名、SPF-only 或被转发破坏签名的来信会隔离。AgentMail 使用供应商 DMARC 元数据。默认用户指令路径均拒绝自动回复、未绑定地址和歧义发件人；显式注册的服务回执先经过独立来源及请求绑定校验，见 [业务复用指南](business-reuse.md)。不采用 Reply-To/CC 作为回复收件人。原件上限 200 KB，正文最多 40,000 字符，附件不执行、不抽取。
 
 `sendEnabled:false` 将通知保存为 draft；改为 true 只发送此后产生的通知，不补发旧草稿。回复输入提示用纯 JSON，确认提示用完整正文 `approve` / `reject`（或“确认”/“拒绝”），不含引用原文。关联依赖回复头、账户及同一身份，主题中的任务 ID 不产生权限。
 
@@ -252,3 +252,8 @@ OIDC_AUTH='{"issuer":"https://identity.example","audience":"cloud-agent","jwksUr
 `pnpm test:recovery` 自动建两个隔离测试库，真实 pg_dump/psql、两个文件存储、摘要破坏检测及修订/幂等保留演练。该测试不接触当前运行实例。
 
 部署档位：本地为 Compose 单库；共享生产为独立 API/Worker + 托管 PostgreSQL + 私有对象存储 + OIDC/秘密供应器。Kubernetes、数据库高可用和地域灾备由部署方配置，当前没有内置 Helm/HA 控制器。RPO 等于最后一次完成备份的时间间隔；RTO 必须在自己的数据规模上演练，本机测试耗时不是生产承诺。
+
+
+## 业务邮件与公众应用扩展
+
+追加迁移 031 后运行 provision；升级期间停止旧 API/Worker，不混跑不认识业务邮件来源字段的版本。事务邮件、受控服务回执、初始扫描基线、Cookie 适配及业务就绪检查的配置见 [业务复用指南](business-reuse.md)。业务发信复用原有发件箱管理，未知投递不会重发；还原含业务邮件的备份后保持维护，须先对账外部动作再显式解除。

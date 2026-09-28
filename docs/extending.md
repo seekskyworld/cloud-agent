@@ -159,6 +159,8 @@ Schema 使用 JSON Schema draft-07（不含远程引用）；输入预算按 UTF
 
 完整业务接入通常修改 3 个静态装配位置：`modules/packages.ts` 注册包，`apps/business-ports.ts` 提供领域适配，`modules/business-views.ts` 注册需要的页面；无领域端口/页面时可省略。宿主配置通过环境变量绑定，Worker 不需要新增业务分支。
 
+上述路径适用于使用平台身份和工作台的业务。公开读取现在可通过 publicReads 声明，独立网页入口通过 modules/site.ts 选择；Cookie 认证可复用已有主体。宿主端口工厂可以注入 BusinessTransactions 和已装配邮箱，业务邮件复用原有发件箱。完整调用与边界见 [业务复用指南](business-reuse.md)。邮箱验证码/注册策略和领域数据仍由接入方实现，框架没有新增第二套用户或确认系统。
+
 - **迁移**：包声明 `migrations:[{id,sql}]`；部署账号运行 `pnpm migrate:business`，创建 `business_<包名>` schema，记录校验和并给运行角色 DML。已经应用的迁移不可改写。业务 SQL 是可信部署代码，schema 不是恶意插件安全边界。
 - **领域端口**：`definePort<T>(id, version, check)` 声明协议；`requires` 使用 `{kind:"port",protocol:{id,version}}`，`services.port(alias,token)` 获取实现。适配器自行复核领域权限、并发版本和幂等，不能相信客户端主体。
 - **API**：`routes` 定义 GET/POST、Schema、capability 和 handle；自动挂载 `/v1/business/<包>/<路由>`。POST 必须用 context.key 在领域事务中去重，平台记录 started/succeeded/unconfirmed 审计但不重发。

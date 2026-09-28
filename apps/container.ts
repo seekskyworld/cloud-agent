@@ -11,7 +11,13 @@ import {
   TokenIdentityProvider,
   type IdentityProvider,
 } from "../packages/identity/provider.js";
-import { createBusinessPorts } from "./business-ports.js";
+import {
+  createBusinessPorts,
+  type BusinessPortContext,
+} from "./business-ports.js";
+import type { MailExtension } from "./mail-assembly.js";
+import { BusinessChecks } from "../packages/business/checks.js";
+import { BusinessTransactions } from "../packages/persistence/business-transactions.js";
 import { BusinessJobs } from "../packages/persistence/business.js";
 import {
   BusinessApplications,
@@ -64,17 +70,16 @@ import type { Module, ModelEngine } from "../packages/contracts/index.js";
 import { defaultModuleVersions } from "../modules/catalog.js";
 import { createModules, registeredCapabilities } from "./modules.js";
 import { MailHub } from "../packages/mail/hub.js";
-import type {
-  MailSettings,
-  MailProvider,
-  MailRouter,
-} from "../packages/mail/contracts.js";
 import type { Config } from "./config.js";
 /** extensions 可替换模块和模型实现；资源由调用方创建并负责关闭，版本变化须同步更新 profile。 */
 export interface ContainerExtensions {
   identityProvider?: IdentityProvider;
+  identityFactory?: (context: BusinessPortContext) => IdentityProvider;
   modules?: Module[];
   ports?: Record<string, PortBinding>;
+  portFactory?: (
+    context: BusinessPortContext,
+  ) => Record<string, PortBinding> | Promise<Record<string, PortBinding>>;
   artifactStores?: ArtifactStore[];
   contexts?: ContextProvider[];
   businesses?: BusinessPackage[];
@@ -84,17 +89,14 @@ export interface ContainerExtensions {
   engine?: ModelEngine;
   profile?: string;
   defaults?: Record<string, string>;
-  mails?: {
-    settings: MailSettings;
-    provider: MailProvider;
-    route?: MailRouter;
-  }[];
-  mail?: { settings: MailSettings; provider: MailProvider; route?: MailRouter };
+  mails?: MailExtension[];
+  mail?: MailExtension;
 }
 export async function createContainer(
   config: Config,
   extensions: ContainerExtensions = {},
 ) {
+  validateHostExtensions(extensions);
   const db = new Database(config.DATABASE_URL);
   const resources = new Resources();
   resources.add(() => db.close());
@@ -211,6 +213,26 @@ async function assemble(
     secrets,
     files,
   );
+  const mails = await assembleMail(
+    config,
+    extensions,
+    db,
+    identity,
+    service,
+    resources,
+  );
+  const mail = mails.length === 1 ? mails[0] : undefined;
+  const transactions = new BusinessTransactions(db);
+  const context: BusinessPortContext = {
+    config,
+    db,
+    identity,
+    tasks: service,
+    transactions,
+    mails,
+    resources,
+  };
+  const ports = await assemblePorts(context, extensions);
   const applications = new BusinessApplications();
   const permissions = await assembleBusiness(
     extensions.businesses ?? businessPackages,
@@ -219,7 +241,7 @@ async function assemble(
       connections,
       files,
       stores,
-      ports: extensions.ports ?? createBusinessPorts(),
+      ports,
       applications,
       models,
       contexts: contexts.fingerprints(),
@@ -236,15 +258,6 @@ async function assemble(
     service,
     resources,
   );
-  const mails = await assembleMail(
-    config,
-    extensions,
-    db,
-    identity,
-    service,
-    resources,
-  );
-  const mail = mails.length === 1 ? mails[0] : undefined;
   return {
     close: () => resources.close(),
     telemetry,
@@ -254,7 +267,9 @@ async function assemble(
     stores,
     downloads: new FileDownloads(db, stores),
     applications,
+    businessChecks: new BusinessChecks(applications),
     businessRequests: new BusinessRequestService(db, identity),
+    transactions,
     deployments: new Deployments(db),
     admission: (id: string, limit: number) => admitConnection(db, id, limit),
     resourceInventory,
@@ -281,7 +296,7 @@ async function assemble(
     identity,
     tokens: new PrincipalTokens(db),
     delegations: new Delegations(db),
-    identityProvider: authentication(config, extensions, identity),
+    identityProvider: authentication(config, extensions, identity, context),
     administration: new AdministrationService(db, identity, () => [
       ...new Set([...registeredCapabilities(registry.list()), ...permissions]),
     ]),
@@ -390,7 +405,9 @@ function authentication(
   config: Config,
   extensions: ContainerExtensions,
   identity: IdentityService,
-) {
+  context: BusinessPortContext,
+): IdentityProvider {
+  if (extensions.identityFactory) return extensions.identityFactory(context);
   if (extensions.identityProvider) return extensions.identityProvider;
   if (config.oidc) {
     if (config.AUTH_MODE !== "token")
@@ -442,4 +459,19 @@ function createContexts(
     ...(extensions.contexts ?? []),
     ...(config.memoryEnabled ? [memories.provider()] : []),
   ]);
+}
+
+function validateHostExtensions(extensions: ContainerExtensions) {
+  if (extensions.identityProvider && extensions.identityFactory)
+    throw new Error("IDENTITY_FACTORY_CONFLICT");
+  if (extensions.ports && extensions.portFactory)
+    throw new Error("PORT_FACTORY_CONFLICT");
+}
+function assemblePorts(
+  context: BusinessPortContext,
+  extensions: ContainerExtensions,
+) {
+  return (
+    extensions.ports ?? (extensions.portFactory ?? createBusinessPorts)(context)
+  );
 }

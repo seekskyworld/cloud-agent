@@ -2,6 +2,8 @@
 
 业务写在 `modules/`，外部协议写在 `adapters/`，不修改 Worker。完整类型见 [contracts](../packages/contracts/index.ts)，流程参考 [报告模块](../modules/report-assistant/index.ts)。
 
+完整业务的复用入口、同库事务与服务回执示例见 [业务复用指南](business-reuse.md)。无需生成器也可直接编写模块和端口；下面生成命令只是可选起点。
+
 ## 最小模块
 
 ```sh

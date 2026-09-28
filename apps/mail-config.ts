@@ -13,6 +13,7 @@ const Schema = z.object({
   AGENTMAIL_WEBHOOK_TOKEN: z.string().default(""),
   MAIL_WORKSPACE: z.string().min(1).default("default"),
   MAIL_BINDINGS: z.string().default("{}"),
+  MAIL_INITIAL_SCAN: z.enum(["process", "skip"]).default("process"),
   MAIL_SEND_ENABLED: z.enum(["false", "true"]).default("false"),
   MAIL_POLL_INTERVAL_MS: z.coerce
     .number()
@@ -82,9 +83,15 @@ export function loadMailConfig(env: NodeJS.ProcessEnv): MailConfig | undefined {
       value.AGENTMAIL_INBOX,
       value.AGENTMAIL_INBOX,
     ]),
+    physicalIdentity: JSON.stringify([
+      "agentmail",
+      value.AGENTMAIL_BASE_URL,
+      value.AGENTMAIL_INBOX,
+    ]),
     workspace: value.MAIL_WORKSPACE,
     bindings: normalized,
     sendEnabled: value.MAIL_SEND_ENABLED === "true",
+    initialScan: value.MAIL_INITIAL_SCAN,
     pollMs:
       value.AGENTMAIL_RECEIVE_MODE === "webhook"
         ? value.AGENTMAIL_RECONCILE_INTERVAL_MS

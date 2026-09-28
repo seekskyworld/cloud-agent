@@ -26,7 +26,9 @@ export async function createMailAccount(
     bindings: config.bindings,
     sendEnabled: config.sendEnabled,
     pollMs: config.pollMs,
+    initialScan: config.initialScan,
     accountFingerprint: fingerprint(adapter.identity),
+    physicalIdentity: adapter.physical,
   };
   return { settings, ...adapter };
 }

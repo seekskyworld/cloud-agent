@@ -1,5 +1,6 @@
 /** 持久通知只由任务状态生成；发送前再次检查身份、资源可见性及等待是否仍有效。 */
-import { deliveryFailure } from "../channels/delivery.js";
+import { sendPending } from "./delivery.js";
+import type { BusinessMail } from "./business.js";
 import {
   Problem,
   requireCapability,
@@ -7,7 +8,7 @@ import {
 } from "../contracts/index.js";
 import type { IdentityService } from "../identity/service.js";
 import type { TaskService } from "../runtime/service.js";
-import { MailProviderError, type MailProvider } from "./contracts.js";
+import type { MailProvider } from "./contracts.js";
 import { MailStore, type NotificationCandidate } from "./store.js";
 export class MailNotifications {
   constructor(
@@ -15,6 +16,7 @@ export class MailNotifications {
     private identity: IdentityService,
     private service: TaskService,
     private provider: MailProvider,
+    private business?: BusinessMail,
   ) {}
   private owner(row: NotificationCandidate): Principal {
     return {
@@ -73,12 +75,14 @@ export class MailNotifications {
     });
   }
   async send(signal: AbortSignal) {
-    if (!this.store.settings.sendEnabled) return;
-    const row = await this.store.nextPending();
-    if (!row) return;
-    try {
+    return sendPending(this.store, this.provider, signal, async (row) => {
+      if (row.business_policy) {
+        if (!this.business) throw new Problem(409, "MAIL_POLICY_UNAVAILABLE");
+        return this.business.prepare(row, signal);
+      }
+      if (!row.task_id) throw new Problem(409, "MAIL_TASK_REQUIRED");
       const tracked = await this.store.notificationTask(row.task_id);
-      if (!tracked) return;
+      if (!tracked) throw new Problem(409, "MAIL_TASK_REQUIRED");
       const owner = this.owner(tracked);
       await this.authorize(owner, row.recipient);
       const notice = await this.service.notification(owner, row.task_id);
@@ -89,35 +93,13 @@ export class MailNotifications {
         notice.status !== row.task_status
       )
         throw new Problem(409, "MAIL_NOTIFICATION_STALE");
-      signal.throwIfAborted();
-    } catch (e) {
-      if (!(e instanceof Problem)) throw e;
-      await this.store.cancelOutbox(row.id, e.code);
-      return;
-    }
-    // 网络之前提交 sending；崩溃恢复绝不把它重新当成未发送。
-    if (!(await this.store.claimOutbox(row.id))) return;
-    try {
-      const providerId = await this.provider.send(
-        {
-          id: row.id,
-          recipient: row.recipient,
-          subject: row.subject,
-          body: row.body,
-          replyTo: row.reply_to,
-        },
-        signal,
-      );
-      await this.store.sentOutbox(row.id, providerId);
-    } catch (e) {
-      const failure = deliveryFailure(e);
-      await this.store.failOutbox(
-        row.id,
-        failure.state,
-        e instanceof MailProviderError ? e.message : "MAIL_SEND_UNKNOWN",
-      );
-      if (e instanceof MailProviderError && [401, 403].includes(e.status))
-        await this.store.block(e.message);
-    }
+      return {
+        id: row.id,
+        recipient: row.recipient,
+        subject: row.subject,
+        body: row.body,
+        replyTo: row.reply_to,
+      };
+    });
   }
 }

@@ -20,6 +20,8 @@ export interface MailDelivery {
   subject: string;
   body: string;
   replyTo: string;
+  /** 缺省保持旧任务回复语义；服务请求不伪装成人工邮件。 */
+  purpose?: "reply" | "notification" | "service-request";
 }
 export interface MailPage {
   ids: string[];
@@ -46,11 +48,15 @@ export interface MailSettings {
   provider?: string;
   address?: string;
   accountFingerprint?: string;
+  /** 可信适配器提供物理邮箱标识，用于发现重复消费者；不含凭据。 */
+  physicalIdentity?: string;
   inbox: string;
   workspace: string;
   bindings: Record<string, string>;
   sendEnabled: boolean;
   pollMs: number;
+  /** 仅作用于新账户第一次完整扫描；省略保持原先处理行为。 */
+  initialScan?: "process" | "skip";
   webhookSecret?: string;
   webhookToken?: string;
 }

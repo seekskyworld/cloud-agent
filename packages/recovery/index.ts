@@ -49,6 +49,14 @@ export async function exportBundle(
     ).rowCount
   )
     throw new Error("EXECUTION_NOT_QUIESCENT");
+  if (
+    (
+      await db.pool.query(
+        "SELECT id FROM mail_outbox WHERE state='sending' LIMIT 1",
+      )
+    ).rowCount
+  )
+    throw new Error("MAIL_NOT_QUIESCENT");
   await mkdir(directory, { mode: 0o700 });
   await mkdir(join(directory, "objects"), { mode: 0o700 });
   const rows = (

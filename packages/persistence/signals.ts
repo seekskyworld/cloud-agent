@@ -73,44 +73,106 @@ export class SignalStore {
     requireCapability(principal, "task:signal");
     await this.db.transaction(async (client) => {
       const task: Task = await ownedTask(client, principal, taskId, true);
-      const hash = fingerprint({ taskId, waitKey, response });
-      const old = (
-        await client.query<{ request_hash: string }>(
-          "SELECT request_hash FROM external_signals WHERE workspace_id=$1 AND principal_id=$2 AND event_key=$3",
-          [principal.workspace_id, principal.id, key],
-        )
-      ).rows[0];
-      if (old) {
-        if (old.request_hash !== hash) throw new Problem(409, "EVENT_CONFLICT");
-        return;
-      }
-      if (["succeeded", "failed", "cancelled"].includes(task.status))
-        throw new Problem(409, "TASK_CLOSED");
-      if (
-        (
-          await client.query(
-            "SELECT id FROM external_signals WHERE task_id=$1 AND wait_key=$2",
-            [taskId, waitKey],
-          )
-        ).rowCount
-      )
-        throw new Problem(409, "SIGNAL_ALREADY_EXISTS");
-      await client.query(
-        "INSERT INTO external_signals(id,task_id,wait_key,workspace_id,principal_id,event_key,response,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
-        [
-          randomUUID(),
-          taskId,
-          waitKey,
-          principal.workspace_id,
-          principal.id,
-          key,
-          JSON.stringify(response),
-          hash,
-        ],
-      );
-      await event(client, taskId, "signal.received", { waitKey });
-      if (task.status === "waiting_external")
-        await consumeSignal(client, taskId);
+      await this.record(client, task, principal, waitKey, response, key);
     });
+  }
+  /** 只由可信邮件适配调用；目标用户/任务/等待键来自持久请求，不接受回执自报。 */
+  async receiveMailReceipt(
+    client: PoolClient,
+    actor: Principal,
+    requestId: string,
+    response: Data,
+    key: string,
+    capability = "task:signal",
+  ) {
+    const current = (
+      await client.query<Principal>(
+        "SELECT * FROM runtime_lock_principals($1,ARRAY[$2])",
+        [actor.workspace_id, actor.id],
+      )
+    ).rows[0];
+    if (!current) throw new Problem(403, "IDENTITY_REVOKED");
+    requireCapability(current, "task:signal");
+    requireCapability(current, capability);
+    const binding = (
+      await client.query<{
+        source_task: string;
+        actor_id: string;
+        wait_key: string;
+      }>(
+        `SELECT o.source_task,o.actor_id,o.wait_key FROM mail_outbox o JOIN mailboxes b ON b.id=o.mailbox
+       WHERE o.id=$1 AND b.workspace_id=$2 AND o.business_policy IS NOT NULL AND o.wait_key IS NOT NULL`,
+        [requestId, current.workspace_id],
+      )
+    ).rows[0];
+    if (!binding) throw new Problem(404, "MAIL_RECEIPT_UNBOUND");
+    const owner = { workspace_id: current.workspace_id, id: binding.actor_id };
+    const task = (
+      await client.query<Task>(
+        "SELECT * FROM tasks WHERE id=$1 AND workspace_id=$2 AND principal_id=$3 FOR UPDATE",
+        [binding.source_task, owner.workspace_id, owner.id],
+      )
+    ).rows[0];
+    if (!task) throw new Problem(404, "TASK_NOT_FOUND");
+    await this.record(
+      client,
+      task,
+      owner,
+      binding.wait_key,
+      response,
+      key,
+      current.id,
+    );
+  }
+  private async record(
+    client: PoolClient,
+    task: Task,
+    principal: Pick<Principal, "id" | "workspace_id">,
+    waitKey: string,
+    response: Data,
+    key: string,
+    serviceActor?: string,
+  ) {
+    const taskId = task.id;
+    const hash = fingerprint({ taskId, waitKey, response });
+    const old = (
+      await client.query<{ request_hash: string }>(
+        "SELECT request_hash FROM external_signals WHERE workspace_id=$1 AND principal_id=$2 AND event_key=$3",
+        [principal.workspace_id, principal.id, key],
+      )
+    ).rows[0];
+    if (old) {
+      if (old.request_hash !== hash) throw new Problem(409, "EVENT_CONFLICT");
+      return;
+    }
+    if (["succeeded", "failed", "cancelled"].includes(task.status))
+      throw new Problem(409, "TASK_CLOSED");
+    if (
+      (
+        await client.query(
+          "SELECT id FROM external_signals WHERE task_id=$1 AND wait_key=$2",
+          [taskId, waitKey],
+        )
+      ).rowCount
+    )
+      throw new Problem(409, "SIGNAL_ALREADY_EXISTS");
+    await client.query(
+      "INSERT INTO external_signals(id,task_id,wait_key,workspace_id,principal_id,event_key,response,request_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+      [
+        randomUUID(),
+        taskId,
+        waitKey,
+        principal.workspace_id,
+        principal.id,
+        key,
+        JSON.stringify(response),
+        hash,
+      ],
+    );
+    await event(client, taskId, "signal.received", {
+      waitKey,
+      ...(serviceActor ? { serviceActor } : {}),
+    });
+    if (task.status === "waiting_external") await consumeSignal(client, taskId);
   }
 }

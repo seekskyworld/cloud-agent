@@ -5,8 +5,19 @@ export interface IdentityReference {
   workspace: string;
   principal: string;
 }
+export interface IdentityRequest {
+  authorization?: string;
+  cookie?: string;
+  origin?: string;
+  method: string;
+}
 export interface IdentityProvider {
   id: string;
+  /** 可选的 HTTP 入口；其他调用者继续使用原 authenticate。 */
+  authenticateRequest?(
+    request: IdentityRequest,
+    signal: AbortSignal,
+  ): Promise<IdentityReference>;
   authenticate(
     authorization: string | undefined,
     signal: AbortSignal,

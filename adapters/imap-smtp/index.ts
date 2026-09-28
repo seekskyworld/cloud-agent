@@ -236,9 +236,14 @@ export class ImapSmtp implements MailProvider {
           subject: delivery.subject,
           text: delivery.body,
           messageId: id,
-          inReplyTo: delivery.replyTo,
-          references: [delivery.replyTo],
-          headers: { "Auto-Submitted": "auto-replied" },
+          inReplyTo: delivery.replyTo || undefined,
+          references: delivery.replyTo ? [delivery.replyTo] : undefined,
+          headers: {
+            "Auto-Submitted":
+              delivery.purpose && delivery.purpose !== "reply"
+                ? "auto-generated"
+                : "auto-replied",
+          },
         }),
       );
       if (result.rejected.length || !result.accepted.length)

@@ -9,6 +9,16 @@ export class MailHub {
       channels.length
     )
       throw new Error("MAIL_ACCOUNT_ID_CONFLICT");
+    const physical = channels.map(
+      ({ store }) =>
+        store.settings.physicalIdentity ??
+        JSON.stringify([
+          store.settings.provider ?? "agentmail",
+          (store.settings.address ?? store.settings.inbox).toLowerCase(),
+        ]),
+    );
+    if (new Set(physical).size !== physical.length)
+      throw new Error("MAIL_CONSUMER_CONFLICT");
   }
   async tick(kind: MailCycle) {
     const pending = [...this.channels];

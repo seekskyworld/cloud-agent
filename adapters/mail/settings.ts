@@ -12,6 +12,7 @@ export const CommonAccount = z.object({
   bindings: z.record(z.email(), z.string().min(1).max(200)),
   credential: z.string().regex(/^[a-zA-Z0-9_-]{1,100}$/),
   sendEnabled: z.boolean().default(false),
+  initialScan: z.enum(["process", "skip"]).optional(),
   pollMs: z.number().int().min(1000).max(3600000).default(5000),
 });
 export type AccountCommon = z.infer<typeof CommonAccount>;

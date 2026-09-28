@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- 业务工具可在受租约、权限和维护门禁约束的同库事务中更新领域数据，并登记到既有邮件发件箱；服务回执绑定原请求后复用外部信号，不复制工作流状态机。
+- 增加可选业务端口工厂上下文、公开读取、静态网站入口、Cookie 主体适配及就绪/恢复检查；默认不启用领域业务，已有任务确认和身份授权继续复用。
+- 追加迁移 031，升级后须 provision；旧邮箱数据不重放，业务邮件纳入退役和恢复保护。本轮未运行自动化测试或供应商联调，详见业务复用指南。
+
 - Add durable model request tracking, optional cancel/status adapters, shared admission and uncertain-request quarantine.
 - Add first-output/idle deadlines, lease-bound cancellation notifications, and model state visibility.
 - Require explicit provider reasoning levels; add offline gateway tests and an opt-in synthetic model probe.

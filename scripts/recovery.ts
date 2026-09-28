@@ -73,9 +73,21 @@ if (operation === "verify") {
         true,
       );
       await restoreObjects(c.db, c.stores, directory);
-      await c.db.pool.query(
-        "UPDATE platform_maintenance SET enabled=false,reason='',updated_at=now()",
+      const checks = await c.businessChecks.run("recovery");
+      if (!checks.ok) throw new Error("BUSINESS_RECOVERY_CHECK_FAILED");
+      // 旧快照可能缺少远端已发生的事实；含业务发信时必须人工对账后解除维护。
+      const messages = await c.db.pool.query(
+        "SELECT 1 FROM mail_outbox WHERE business_policy IS NOT NULL LIMIT 1",
       );
+      if (messages.rowCount) {
+        process.stdout.write(
+          "Business mail restored; maintenance remains enabled. Reconcile external effects before resuming.\n",
+        );
+      } else {
+        await c.db.pool.query(
+          "UPDATE platform_maintenance SET enabled=false,reason='',updated_at=now()",
+        );
+      }
     }
     process.stdout.write(`Recovery ${operation} verified\n`);
   } finally {

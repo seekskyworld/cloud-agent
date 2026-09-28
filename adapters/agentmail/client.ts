@@ -143,9 +143,13 @@ export class AgentMail implements MailProvider {
       text: delivery.body,
       headers: {
         "Message-ID": `<${delivery.id}@cloud-agent.local>`,
-        "Auto-Submitted": "auto-replied",
-        "In-Reply-To": delivery.replyTo,
-        References: delivery.replyTo,
+        "Auto-Submitted":
+          delivery.purpose && delivery.purpose !== "reply"
+            ? "auto-generated"
+            : "auto-replied",
+        ...(delivery.replyTo
+          ? { "In-Reply-To": delivery.replyTo, References: delivery.replyTo }
+          : {}),
       },
     });
     return z.object({ message_id: Id }).parse(response).message_id;

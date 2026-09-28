@@ -1,4 +1,5 @@
 /** 完整业务应用的贡献协议；宿主注入可信身份、截止信号与请求键。 */
+import type { BusinessCheck } from "./checks.js";
 import type { z } from "zod";
 import type { Data, Json, Module, Principal } from "../contracts/index.js";
 export interface BusinessRoute {
@@ -12,6 +13,13 @@ export interface BusinessRoute {
     input: unknown,
     context: { principal: Principal; key?: string; signal: AbortSignal },
   ): Promise<Json>;
+}
+/** 显式公开读取；无主体、无写入幂等键，业务必须只返回可公开字段。 */
+export interface BusinessPublicRead {
+  id: string;
+  input: z.ZodType;
+  output: z.ZodType;
+  handle(input: unknown, context: { signal: AbortSignal }): Promise<Json>;
 }
 export interface BusinessPage {
   id: string;
@@ -32,8 +40,10 @@ export interface BusinessInstance {
   dependencies?: Record<string, { bindings: string[]; config: string[] }>;
   modules: Module[];
   routes?: BusinessRoute[];
+  publicReads?: BusinessPublicRead[];
   jobs?: BusinessJob[];
   pages?: BusinessPage[];
+  checks?: BusinessCheck[];
   close?: () => Promise<void>;
 }
 /** Token 名称和版本共同标识协议；宿主必须显式绑定实现，不能按字符串强转任意资源。 */
@@ -68,8 +78,10 @@ export class BusinessApplications {
       throw new Error("BUSINESS_DUPLICATE");
     for (const contributions of [
       instance.routes ?? [],
+      instance.publicReads ?? [],
       instance.jobs ?? [],
       instance.pages ?? [],
+      instance.checks ?? [],
     ]) {
       const names = new Set<string>();
       for (const entry of contributions) {
@@ -80,6 +92,12 @@ export class BusinessApplications {
         names.add(entry.id);
       }
     }
+    if (
+      (instance.checks ?? []).some(
+        (c) => !["ready", "recovery"].includes(c.phase),
+      )
+    )
+      throw new Error("BUSINESS_CHECK_INVALID");
     for (const job of instance.jobs ?? []) {
       if (
         !instance.modules.some((m) => m.id === job.moduleId) ||

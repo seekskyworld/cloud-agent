@@ -7,7 +7,15 @@ import type { MailMessage, MailSettings } from "./contracts.js";
 export interface OutboxRow {
   id: string;
   mailbox: string;
-  task_id: string;
+  task_id: string | null;
+  business_policy: string | null;
+  policy_version: string | null;
+  command_key: string | null;
+  actor_id: string | null;
+  source_task: string | null;
+  wait_key: string | null;
+  purpose: "reply" | "notification" | "service-request";
+  metadata: import("../contracts/index.js").Data;
   notification_key: string;
   wait_id: string | null;
   task_status: string;
@@ -42,7 +50,7 @@ export class MailStore {
         settings.address ?? settings.inbox,
       ]);
     const row = await this.db.pool.query(
-      `INSERT INTO mailboxes(id,workspace_id,provider,remote_id,address,config_hash) VALUES($1,$2,$3,$4,$5,$6)
+      `INSERT INTO mailboxes(id,workspace_id,provider,remote_id,address,config_hash,baseline_complete) VALUES($1,$2,$3,$4,$5,$6,$7)
       ON CONFLICT(id) DO UPDATE SET config_hash=COALESCE(mailboxes.config_hash,EXCLUDED.config_hash),address=COALESCE(mailboxes.address,EXCLUDED.address)
       WHERE mailboxes.workspace_id=EXCLUDED.workspace_id AND mailboxes.provider=EXCLUDED.provider AND mailboxes.remote_id=EXCLUDED.remote_id
       AND (mailboxes.address IS NULL OR mailboxes.address=EXCLUDED.address) AND (mailboxes.config_hash IS NULL OR mailboxes.config_hash=EXCLUDED.config_hash)
@@ -54,6 +62,7 @@ export class MailStore {
         settings.inbox,
         settings.address ?? settings.inbox,
         digest,
+        settings.initialScan !== "skip",
       ],
     );
     if (!row.rowCount) throw new Problem(409, "MAIL_ACCOUNT_CHANGED");
@@ -126,7 +135,7 @@ export class MailStore {
     await this.initialize();
     const mailbox = (
       await this.db.pool.query(
-        "SELECT id,provider,remote_id,address,blocked_reason,last_error,last_success,next_poll FROM mailboxes WHERE id=$1",
+        "SELECT id,provider,remote_id,address,blocked_reason,last_error,last_success,next_poll,baseline_complete FROM mailboxes WHERE id=$1",
         [this.id],
       )
     ).rows[0];
@@ -138,7 +147,7 @@ export class MailStore {
     ).rows;
     const outbox = (
       await this.db.pool.query(
-        "SELECT id,task_id,state,error,provider_id,created_at FROM mail_outbox WHERE mailbox=$1 ORDER BY created_at DESC LIMIT 100",
+        "SELECT id,task_id,source_task,business_policy,command_key,purpose,state,error,provider_id,created_at FROM mail_outbox WHERE mailbox=$1 ORDER BY created_at DESC LIMIT 100",
         [this.id],
       )
     ).rows;
@@ -228,7 +237,7 @@ export class MailStore {
     return Boolean(
       (
         await this.db.pool.query(
-          "UPDATE mail_outbox SET state='sending',attempts=attempts+1,updated_at=now() WHERE id=$1 AND state='pending' RETURNING id",
+          "UPDATE mail_outbox SET state='sending',attempts=attempts+1,updated_at=now() WHERE id=$1 AND state='pending' AND NOT runtime_maintenance_enabled() RETURNING id",
           [id],
         )
       ).rowCount,

@@ -1,6 +1,6 @@
 # Coding agent guide
 
-公共开发约定，不依赖本机技能或私有协作系统。修改前阅读 [README](README.md)、[架构](docs/cloud-agent-architecture.md) 和相关源码，检查 `git status --short`，保留他人改动。接业务看 [模块与适配器](docs/modules.md)。
+公共开发约定，不依赖本机技能或私有协作系统。修改前阅读 [README](README.md)、[架构](docs/cloud-agent-architecture.md) 和相关源码，检查 `git status --short`，保留他人改动。接业务先看 [业务复用指南](docs/business-reuse.md)，再看 [模块与适配器](docs/modules.md)。优先复用现有任务、确认、身份和投递机制；领域 SQL 与框架同库组合时使用宿主事务端口，不在业务中复制第二套通用状态机。
 
 ## 边界与不变量
 

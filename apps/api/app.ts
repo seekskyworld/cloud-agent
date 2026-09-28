@@ -1,3 +1,4 @@
+import { registerPublicBusiness } from "./public-business.js";
 import { registerGovernance } from "./governance.js";
 import { managementEndpoints } from "../../packages/api/management.js";
 import { registerIdentityRoutes } from "./identity.js";
@@ -15,7 +16,7 @@ import {
 } from "../../packages/api/contracts.js";
 import { Reconciliation } from "../../packages/api/reconciliation.js";
 /** HTTP 仅解析请求并调用服务；身份不允许由请求体指定。 */
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import rateLimit from "@fastify/rate-limit";
 import staticFiles from "@fastify/static";
 import { existsSync } from "node:fs";
@@ -38,11 +39,24 @@ declare module "fastify" {
 }
 export async function createApp(
   container: Container,
-  options: { rateLimitMax?: number } = {},
+  options: {
+    rateLimitMax?: number;
+    /** 可信宿主可配置代理地址/网段；默认不信任转发头。 */
+    trustedProxies?: string[];
+    registerAuthentication?: (
+      app: FastifyInstance,
+      container: Container,
+    ) => Promise<void>;
+  } = {},
 ) {
   const app = Fastify({
+    trustProxy: options.trustedProxies ?? false,
     logger: {
-      redact: ["req.headers.authorization"],
+      redact: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "res.headers.set-cookie",
+      ],
       level: process.env.LOG_LEVEL ?? "info",
     },
     bodyLimit: 128_000,
@@ -82,11 +96,20 @@ export async function createApp(
   app.get("/ready", { config: { rateLimit: false } }, async (_req, reply) => {
     try {
       const health = await container.operations.ready();
+      const business = await container.businessChecks.run("ready");
       return reply
         .code(
-          health.worker && health.maintenance && health.compatible ? 200 : 503,
+          health.worker &&
+            health.maintenance &&
+            health.compatible &&
+            business.ok
+            ? 200
+            : 503,
         )
-        .send(health);
+        .send({
+          ...health,
+          ...(business.configured ? { business: business.ok } : {}),
+        });
     } catch {
       return reply
         .code(503)
@@ -104,16 +127,31 @@ export async function createApp(
       return payload;
     return definition.response.parse(JSON.parse(JSON.stringify(payload)));
   });
+  registerPublicBusiness(app, container.applications);
+  if (options.registerAuthentication)
+    await app.register((scope) =>
+      options.registerAuthentication!(scope, container),
+    );
   await registerMailWebhook(app, container.mails);
   await registerChannelHooks(app, container.channels);
   await app.register(
     async (api) => {
       api.addHook("preHandler", async (req) => {
         const reference = await bounded(15_000, (signal) =>
-          container.identityProvider.authenticate(
-            req.headers.authorization,
-            signal,
-          ),
+          container.identityProvider.authenticateRequest
+            ? container.identityProvider.authenticateRequest(
+                {
+                  authorization: req.headers.authorization,
+                  cookie: req.headers.cookie,
+                  origin: req.headers.origin,
+                  method: req.method,
+                },
+                signal,
+              )
+            : container.identityProvider.authenticate(
+                req.headers.authorization,
+                signal,
+              ),
         );
         req.principal = await container.identity.current(
           reference.workspace,

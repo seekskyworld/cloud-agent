@@ -35,7 +35,7 @@ try {
       "GRANT SELECT ON administration_audit TO cloud_agent_app",
     );
     await client.query(
-      "REVOKE UPDATE,DELETE ON governance_commands,token_audit,retention_audit,delegation_audit,deployment_revisions,deployment_audit,business_requests,context_snapshots,task_reconciliations,channel_audit,mail_audit FROM cloud_agent_app",
+      "REVOKE UPDATE,DELETE ON mail_service_receipts,governance_commands,token_audit,retention_audit,delegation_audit,deployment_revisions,deployment_audit,business_requests,context_snapshots,task_reconciliations,channel_audit,mail_audit FROM cloud_agent_app",
     );
     await client.query(
       "REVOKE INSERT,UPDATE,DELETE ON task_archives FROM cloud_agent_app",

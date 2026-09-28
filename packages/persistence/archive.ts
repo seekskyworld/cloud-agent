@@ -50,8 +50,8 @@ export async function readArchives(
 const eligible = `t.status IN ('succeeded','failed','cancelled') AND t.updated_at<now()-$1::int*interval '1 day'
  AND NOT EXISTS(SELECT 1 FROM tool_invocations i WHERE i.task_id=t.id AND i.status IN ('unknown','dispatching'))
  AND NOT EXISTS(SELECT 1 FROM waits w WHERE w.task_id=t.id AND w.status='pending')
- AND NOT EXISTS(SELECT 1 FROM mail_outbox o WHERE o.task_id=t.id AND o.state NOT IN ('sent','cancelled'))
- AND NOT EXISTS(SELECT 1 FROM channel_outbox o WHERE o.task_id=t.id AND o.state NOT IN ('sent','cancelled'))
+ AND NOT EXISTS(SELECT 1 FROM mail_outbox o WHERE (o.task_id=t.id OR o.source_task=t.id) AND o.state NOT IN ('sent','cancelled'))
+ AND NOT EXISTS(SELECT 1 FROM channel_outbox o WHERE (o.task_id=t.id OR o.source_task=t.id) AND o.state NOT IN ('sent','cancelled'))
  AND NOT EXISTS(SELECT 1 FROM mail_inbound m WHERE m.task_id=t.id AND m.state<>'processed')
  AND (EXISTS(SELECT 1 FROM events e WHERE e.task_id=t.id) OR EXISTS(SELECT 1 FROM invocation_attempts a JOIN steps s ON s.id=a.step_id WHERE s.task_id=t.id))`;
 export class ArchiveStore {

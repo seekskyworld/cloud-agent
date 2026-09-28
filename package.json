@@ -33,6 +33,7 @@
     "module:create": "node scripts/create-module.mjs",
     "archive": "tsx --conditions=development scripts/archive.ts",
     "doctor": "tsx --conditions=development scripts/doctor.ts",
+    "business:check": "tsx --conditions=development scripts/business-check.ts",
     "extension:create": "node scripts/create-extension.mjs",
     "files:prune": "tsx --conditions=development scripts/prune-files.ts",
     "package:create": "node scripts/create-package.mjs",
