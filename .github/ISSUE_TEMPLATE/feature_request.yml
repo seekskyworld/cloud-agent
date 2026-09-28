@@ -1,0 +1,22 @@
+name: Feature request / 功能建议
+description: Propose a reusable capability with a concrete use case.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Use case / 使用场景
+      description: Explain the problem and why existing modules or adapters cannot solve it.
+    validations:
+      required: true
+  - type: textarea
+    id: boundary
+    attributes:
+      label: Proposed boundary / 建议归属
+      description: Core, module, adapter, UI, tooling or documentation? Explain reuse across different businesses.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Alternatives and compatibility / 替代方案与兼容影响
+      description: Consider permissions, recovery, migrations and existing tasks. Use synthetic data only.

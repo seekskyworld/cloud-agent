@@ -1,0 +1,17 @@
+# 宿主机热更新开发专用数据库；端口与隔离测试数据库不同。
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cloud_agent_dev
+      POSTGRES_USER: cloud_agent_dev
+      POSTGRES_PASSWORD: local-dev-only
+    ports: ["127.0.0.1:55432:5432"]
+    volumes: ["development:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloud_agent_dev -d cloud_agent_dev"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+volumes:
+  development:

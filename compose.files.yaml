@@ -1,0 +1,8 @@
+# 可选本地文件卷；与 compose.yaml 一起使用，API/Worker 必须挂载同一位置。
+services:
+  api:
+    volumes: ["artifacts:/app/files"]
+  worker:
+    volumes: ["artifacts:/app/files"]
+volumes:
+  artifacts:

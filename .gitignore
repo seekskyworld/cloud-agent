@@ -1,0 +1,32 @@
+# 本地参考项目仅保留在磁盘，不纳入 Cloud Agent 源码交付
+/project/
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+playwright-report/
+test-results/
+backups/
+.DS_Store
+# 本机协作记录、会话和私人参考资料
+/.golutra/
+
+# 本地凭据、证书私钥和编辑器/运行产物
+*.key
+*.pem
+*.p12
+*.pfx
+*.keystore
+.idea/
+.vscode/
+.cache/
+.pnpm-store/
+*.log
+*.tsbuildinfo
+*.swp
+*.swo
+*~
+/tmp/
+/temp/

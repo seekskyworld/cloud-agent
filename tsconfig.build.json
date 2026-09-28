@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "exclude": [
+    "project",
+    "node_modules",
+    "dist",
+    "tests",
+    "apps/web",
+    "playwright.config.ts"
+  ],
+  "compilerOptions": {
+    "declaration": true
+  }
+}

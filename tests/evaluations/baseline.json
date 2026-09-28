@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "text-initial-action",
+      "version": "1",
+      "input": {
+        "moduleId": "text",
+        "input": {
+          "text": "hello",
+          "instruction": "echo"
+        }
+      },
+      "expected": {
+        "kind": "model",
+        "key": "generate",
+        "request": {
+          "instructions": "echo",
+          "messages": [
+            {
+              "role": "user",
+              "text": "hello"
+            }
+          ],
+          "tools": []
+        }
+      },
+      "maxCostUsd": 0,
+      "maxLatencyMs": 500
+    },
+    {
+      "id": "report-initial-action",
+      "version": "1",
+      "input": {
+        "moduleId": "report",
+        "input": {
+          "title": "sample",
+          "values": [2, 4]
+        }
+      },
+      "expected": {
+        "kind": "tool",
+        "key": "calculate",
+        "name": "report.calculate",
+        "input": {
+          "title": "sample",
+          "values": [2, 4]
+        }
+      },
+      "expectedTools": ["report.calculate"],
+      "maxCostUsd": 0,
+      "maxLatencyMs": 500
+    },
+    {
+      "id": "reviewed-report-initial-action",
+      "version": "1",
+      "input": {
+        "moduleId": "reviewed-report",
+        "input": {
+          "title": "sample",
+          "values": [2, 4]
+        }
+      },
+      "expected": {
+        "kind": "tool",
+        "key": "calculate",
+        "name": "reviewed-report.calculate",
+        "input": {
+          "title": "sample",
+          "values": [2, 4]
+        }
+      },
+      "expectedTools": ["reviewed-report.calculate"],
+      "maxCostUsd": 0,
+      "maxLatencyMs": 500
+    }
+  ]
+}
