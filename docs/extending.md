@@ -151,7 +151,9 @@ BUSINESS_PACKAGES='[{"id":"starter","config":{"prefix":"报告"},"bindings":{"ou
 
 需要处理长文档时，把改写、提取、审核和审核后构建拆成多个稳定模型 Step。提取结果只保存元数据和 `sourceDigest`/原文范围，审核通过后再启动图谱或索引构建。声明 `checkpoint:{key,sourceDigest}` 后，模型返回结果会在最终 Step 提交前落入可恢复检查点；恢复时会校验任务配置、模型、提示词和完整请求参数指纹。失配结果丢弃后重新调用仍扣除旧调用的费用和耗时；已完成的步骤始终由原有持久步骤复用。SDK 的 `sourceDigest`、`ExtractedReference` 与 `restoreSourceRanges` 在函数入口拒绝摘要变化、非法行号、范围越界和重叠。默认允许局部摘录；要求全文无遗漏时传入 `{coverage:"full"}`，包括末尾空行必须覆盖；输出换行规范为 LF。
 
-Schema 使用 JSON Schema draft-07（不含远程引用）；输入预算按 UTF-8 字节加工具定义/开销保守计量，**不是精确 tokenizer**。引擎可实现 `countTokens` 提供专用分词计量。工具调用回合保留原协议，由模块决定后续步骤。
+模型输出和等待响应 Schema 支持 JSON Schema draft-07 及显式声明 `$schema: "https://json-schema.org/draft/2020-12/schema"` 的 2020-12（包括 Zod 默认生成的 Schema），不含远程引用。未声明方言时仍使用 draft-07；未知方言拒绝，不删除声明或忽略新版约束。无效模型 Schema 在调用前返回 `MODEL_OUTPUT_SCHEMA_INVALID`，修正模块声明或校验器后可重新提交；无效模型输出及等待响应仍拒绝。
+
+输入预算按 UTF-8 字节加工具定义/开销保守计量，**不是精确 tokenizer**。引擎可实现 `countTokens` 提供专用分词计量。工具调用回合保留原协议，由模块决定后续步骤。
 
 ## 完整应用与独立制品
 

@@ -1,7 +1,7 @@
 import { authorizeDelegation } from "../identity/delegation.js";
 /** 等待条件、输入去重与重新入队共同提交，避免确认丢失或重复消费。 */
 import { randomUUID } from "node:crypto";
-import { Ajv } from "ajv";
+import { compileJsonSchema } from "../contracts/json-schema.js";
 import {
   Problem,
   requireCapability,
@@ -15,7 +15,6 @@ import { fingerprint } from "../contracts/fingerprint.js";
 import { event, ownedTask } from "./task-helpers.js";
 import { ExecutionStore } from "./execution.js";
 import { consumeSignal } from "./signals.js";
-const validator = new Ajv({ strict: false });
 type WaitRow = {
   id: string;
   task_id: string;
@@ -139,7 +138,7 @@ export class WaitStore {
         wait.expires_at.getTime() <= Date.now()
       )
         throw new Problem(409, "WAIT_CLOSED");
-      if (!validator.validate(wait.schema, response))
+      if (!compileJsonSchema(wait.schema)(response))
         throw new Problem(400, "INVALID_WAIT_RESPONSE");
       await client.query(
         "INSERT INTO inbound_events(id,workspace_id,principal_id,event_key,request_hash,wait_id,response) VALUES($1,$2,$3,$4,$5,$6,$7)",

@@ -47,6 +47,13 @@ export function ConversationPanel({
         const d = await client.call("detail", undefined, { id: selected });
         if (!active) return;
         setDetail(d);
+        setTasks((rows) =>
+          rows.map((task) =>
+            task.id === d.task.id
+              ? { ...task, status: d.task.status, error: d.task.error }
+              : task,
+          ),
+        );
         const history = await client.conversation(d.task.conversation_id);
         if (!active) return;
         setMessages(history);
@@ -165,7 +172,7 @@ export function ConversationPanel({
           <option value="">新对话</option>
           {tasks.map((t) => (
             <option key={t.id} value={t.id}>
-              {new Date(t.created_at).toLocaleString()} · {t.status}
+              {new Date(t.created_at).toLocaleString()} · {taskStatus(t.status)}
             </option>
           ))}
         </select>
@@ -248,6 +255,21 @@ export function ConversationPanel({
         )}
     </section>
   );
+}
+
+function taskStatus(status: string) {
+  const labels: Record<string, string> = {
+    queued: "排队中",
+    running: "处理中",
+    retry_scheduled: "等待重试",
+    waiting_input: "等待补充",
+    waiting_approval: "等待确认",
+    waiting_external: "等待外部结果",
+    succeeded: "已完成",
+    failed: "未完成",
+    cancelled: "已取消",
+  };
+  return labels[status] ?? status;
 }
 
 function statusMessage(status: string, error: string | null) {

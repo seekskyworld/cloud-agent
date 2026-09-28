@@ -1,7 +1,7 @@
 /** 外部回调先入库再匹配等待；只允许绑定任务所有者的服务身份投递。 */
 import { randomUUID } from "node:crypto";
 import type { PoolClient } from "pg";
-import { Ajv } from "ajv";
+import { compileJsonSchema } from "../contracts/json-schema.js";
 import {
   Problem,
   requireCapability,
@@ -12,7 +12,6 @@ import {
 import type { Database } from "./database.js";
 import { fingerprint } from "../contracts/fingerprint.js";
 import { event, ownedTask } from "./tasks.js";
-const validator = new Ajv({ strict: false });
 /** 在已锁住任务的事务内匹配，保证取消与回调不会同时胜出。 */
 export async function consumeSignal(
   client: PoolClient,
@@ -33,7 +32,7 @@ export async function consumeSignal(
   ).rows[0];
   if (!row) return;
   if (row.expires_at.getTime() <= Date.now()) return;
-  const valid = validator.validate(row.schema, row.response);
+  const valid = compileJsonSchema(row.schema)(row.response);
   await client.query("UPDATE external_signals SET status=$2 WHERE id=$1", [
     row.signal_id,
     valid ? "consumed" : "rejected",

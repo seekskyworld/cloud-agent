@@ -6,6 +6,7 @@ import { z } from "zod";
 import { createContainer, type Container } from "../apps/container.js";
 import {
   Problem,
+  type Json,
   type Module,
   type Tool,
 } from "../packages/contracts/index.js";
@@ -508,7 +509,15 @@ test("确认绑定参数摘要，工具参数改变后不能复用确认", async
     0,
   );
 });
-function externalModule(): Module {
+function externalModule(
+  waitKind: "input" | "external" = "external",
+  schema = {
+    type: "object",
+    properties: { value: { type: "number" } },
+    required: ["value"],
+    additionalProperties: false,
+  } as Json,
+): Module {
   return {
     id: "external",
     version: "1",
@@ -524,19 +533,69 @@ function externalModule(): Module {
         : {
             kind: "wait",
             key: "external-result",
-            waitKind: "external",
+            waitKind,
             reason: "等待结果",
-            schema: {
-              type: "object",
-              properties: { value: { type: "number" } },
-              required: ["value"],
-              additionalProperties: false,
-            },
+            schema,
             expiresInMs: 60_000,
           };
     },
   };
 }
+for (const kind of ["input", "external"] as const)
+  test(`2020-12 ${kind} 等待恢复并拒绝不合法的元组响应`, async () => {
+    const schema = z
+      .json()
+      .parse(
+        z.toJSONSchema(
+          z.object({ value: z.tuple([z.string(), z.number()]) }).strict(),
+        ),
+      );
+    c.registry.register(externalModule(kind, schema));
+    for (const valid of [false, true]) {
+      const task = await c.tasks.create(
+        principal,
+        "external",
+        {},
+        randomUUID(),
+      );
+      await drain(c);
+      const response = { value: valid ? ["item", 1] : [1, "item"] };
+      if (kind === "input") {
+        const [wait] = (
+          await c.db.pool.query<{ id: string }>(
+            "SELECT id FROM waits WHERE task_id=$1 AND status='pending'",
+            [task.id],
+          )
+        ).rows;
+        assert.ok(wait);
+        if (!valid) {
+          await assert.rejects(
+            c.waits.respond(principal, wait.id, response, randomUUID()),
+            /INVALID_WAIT_RESPONSE/,
+          );
+          assert.equal(
+            (await c.tasks.get(principal, task.id)).status,
+            "waiting_input",
+          );
+          continue;
+        }
+        await c.waits.respond(principal, wait.id, response, randomUUID());
+      } else {
+        await c.signals.receive(
+          principal,
+          task.id,
+          "external-result",
+          response,
+          randomUUID(),
+        );
+      }
+      await drain(c);
+      const result = await c.tasks.get(principal, task.id);
+      assert.equal(result.status, valid ? "succeeded" : "failed");
+      if (valid) assert.deepEqual(result.result, response);
+      else assert.equal(result.error, "INVALID_EXTERNAL_RESPONSE");
+    }
+  });
 test("外部回调提前到达并重复发送，等待创建后只消费一次", async () => {
   c.registry.register(externalModule());
   const task = await c.tasks.create(principal, "external", {}, randomUUID());

@@ -1,9 +1,12 @@
+import { pendingModule } from "../tests/fixtures/model-pending.js";
 import {
-  pendingModel,
-  pendingModule,
-} from "../tests/fixtures/model-pending.js";
+  conversationModel,
+  conversationModule,
+} from "../tests/fixtures/conversation.js";
+import { build } from "vite";
+import react from "@vitejs/plugin-react";
 import { z } from "zod";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 /** 测试专用服务在独立库运行，进程结束后移除本次创建的库。 */
@@ -52,9 +55,10 @@ const container = await createContainer(
     LLM_OUTPUT_PRICE: 4,
     WORKER_CONCURRENCY: 2,
   },
-  { engine: pendingModel },
+  { engine: conversationModel },
 );
 container.registry.register(pendingModule);
+container.registry.register(conversationModule);
 // 浏览器专用未知回执替身，不执行真实外部写操作。
 container.registry.register({
   id: "browser-unknown",
@@ -98,6 +102,32 @@ await container.db.pool.query(
 );
 // 所有浏览器场景共享一个回环 IP；测试配额容纳整套流程，生产默认仍为 120 次/分钟。
 const app = await createApp(container, { rateLimitMax: 1000 });
+const conversationDirectory = join(filesDirectory, "conversation");
+await build({
+  configFile: false,
+  define: { "process.env.NODE_ENV": JSON.stringify("production") },
+  plugins: [react()],
+  build: {
+    outDir: conversationDirectory,
+    lib: {
+      entry: "tests/fixtures/conversation-page.tsx",
+      formats: ["es"],
+      fileName: () => "conversation.js",
+    },
+  },
+});
+app.get("/__fixtures/conversation", async (_request, reply) =>
+  reply
+    .type("text/html")
+    .send(
+      `<!doctype html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>通用对话回归</title><style>body{font-family:system-ui;margin:20px}main{max-width:720px;margin:auto}label{display:block;margin:16px 0}select,textarea{display:block;box-sizing:border-box;width:100%}textarea{min-height:100px}pre{white-space:pre-wrap;overflow-wrap:anywhere}button{padding:8px;margin:4px}article{border-left:2px solid #888;padding:12px;margin:12px 0}</style></head><body><main id="root"></main><script type="module" src="/__fixtures/conversation.js"></script></body></html>`,
+    ),
+);
+app.get("/__fixtures/conversation.js", async (_request, reply) =>
+  reply
+    .type("application/javascript")
+    .send(await readFile(join(conversationDirectory, "conversation.js"))),
+);
 await app.listen({ host: "127.0.0.1", port: 3197 });
 let stopping = false;
 for (const signal of ["SIGINT", "SIGTERM"] as const)

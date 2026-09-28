@@ -1,5 +1,5 @@
 /** 模型参数与输出在平台边界验证，不把结构化结果声明等同于供应商原生约束。 */
-import { Ajv } from "ajv";
+import { compileJsonSchema } from "../contracts/json-schema.js";
 import {
   Problem,
   type Json,
@@ -143,7 +143,7 @@ function schemaValidator(schema: Json) {
     )
       throw new Error("invalid");
     if (JSON.stringify(schema).length > 16000) throw new Error("large");
-    return new Ajv({ strict: false, allErrors: false }).compile(schema);
+    return compileJsonSchema(schema);
   } catch {
     throw new Problem(422, "MODEL_OUTPUT_SCHEMA_INVALID");
   }
