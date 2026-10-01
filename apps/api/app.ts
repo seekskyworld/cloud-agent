@@ -43,6 +43,8 @@ export async function createApp(
     rateLimitMax?: number;
     /** 可信宿主可配置代理地址/网段；默认不信任转发头。 */
     trustedProxies?: string[];
+    /** 由可信宿主指定构建目录，测试夹具不覆盖生产页面产物。 */
+    staticRoot?: string;
     registerAuthentication?: (
       app: FastifyInstance,
       container: Container,
@@ -374,7 +376,8 @@ export async function createApp(
     },
     { prefix: "/v1" },
   );
-  if (existsSync("dist/web/index.html"))
-    await app.register(staticFiles, { root: resolve("dist/web"), prefix: "/" });
+  const staticRoot = resolve(options.staticRoot ?? "dist/web");
+  if (existsSync(resolve(staticRoot, "index.html")))
+    await app.register(staticFiles, { root: staticRoot, prefix: "/" });
   return app;
 }

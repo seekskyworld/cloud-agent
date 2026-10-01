@@ -210,7 +210,11 @@ test("含引用的含糊确认被隔离，明确拒绝不可借来信重放绕�
   await incoming(f, "late", { inReplyTo: prompt.provider_id, text: "approve" });
   await f.mail.tick();
   assert.equal((await inbound(f.c, "late")).error, "WAIT_CLOSED");
-  await f.c.tasks.retry(principal, (await taskRows(f.c))[0].id);
+  const taskRowsCache = await taskRows(f.c);
+  await assert.rejects(
+    () => f.c.tasks.retry(principal, taskRowsCache[0].id),
+    /APPROVAL_REJECTED/,
+  );
   await drain(f.c);
   assert.equal((await taskRows(f.c))[0].status, "failed");
 });

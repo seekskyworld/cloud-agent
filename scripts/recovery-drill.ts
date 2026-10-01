@@ -242,16 +242,15 @@ try {
 }
 async function transfer(database: string, path: string, input: boolean) {
   const connection = new URL(source),
-    host = ["127.0.0.1", "localhost"].includes(connection.hostname)
-      ? "host.docker.internal"
-      : connection.hostname;
+    loopback = ["127.0.0.1", "localhost"].includes(connection.hostname),
+    hostNetwork = loopback && process.platform === "linux",
+    host =
+      loopback && !hostNetwork ? "host.docker.internal" : connection.hostname;
   const args = [
     "run",
     "--rm",
     "-i",
-    ...(process.platform === "linux"
-      ? ["--add-host", "host.docker.internal:host-gateway"]
-      : []),
+    ...(hostNetwork ? ["--network", "host"] : []),
     "-e",
     "PGPASSWORD",
     "postgres:17-alpine",

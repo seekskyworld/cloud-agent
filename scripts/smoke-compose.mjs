@@ -147,7 +147,7 @@ try {
          assert.equal(calls-before,mismatch?2:1);
        }
        engine.next=async()=>new Promise(()=>{});
-       c.registry.register({...module,id:'smoke-unknown',version:'2',budget:{maxDurationMs:30}});
+       c.registry.register({...module,id:'smoke-unknown',version:'2',budget:{maxDurationMs:3000}});
        const uncertain=await c.service.create(actor,'smoke-unknown',{},'unknown-model');
        await c.worker.tick();
        const row=(await c.db.pool.query("SELECT state FROM model_requests WHERE task_id=$1",[uncertain.id])).rows[0];

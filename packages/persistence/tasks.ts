@@ -455,6 +455,22 @@ export class TaskStore {
       );
       if (!["failed", "waiting_external"].includes(task.status))
         throw new Problem(409, "NOT_RETRYABLE");
+      // 只复核尚未完成的确认步骤；已执行动作的确认过期不阻止后续对账。
+      const closedApproval = (
+        await client.query<{ rejected: boolean }>(
+          `SELECT (w.status='consumed' AND w.response->>'approved' IS DISTINCT FROM 'true') AS rejected
+           FROM waits w JOIN steps s ON s.id=w.step_id
+           WHERE w.task_id=$1 AND w.kind='approval' AND s.status<>'succeeded'
+           AND (w.status IN ('expired','cancelled') OR w.expires_at<=now()
+             OR (w.status='consumed' AND w.response->>'approved' IS DISTINCT FROM 'true')) LIMIT 1`,
+          [id],
+        )
+      ).rows[0];
+      if (closedApproval)
+        throw new Problem(
+          409,
+          closedApproval.rejected ? "APPROVAL_REJECTED" : "APPROVAL_EXPIRED",
+        );
       const unsafe = await client.query(
         "SELECT id FROM tool_invocations WHERE task_id=$1 AND status IN ('unknown','dispatching') AND effect='unsafe_write'",
         [id],

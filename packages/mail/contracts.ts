@@ -1,4 +1,6 @@
+/// <reference types="node" />
 /** 邮件供应商端口：身份认证由适配器核验，业务路由由宿主注入。 */
+import type { Buffer } from "node:buffer";
 import { DeliveryError } from "../channels/delivery.js";
 import type { Data, Principal } from "../contracts/index.js";
 export interface MailMessage {

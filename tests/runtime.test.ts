@@ -441,12 +441,11 @@ test("拒绝确认后显式重试仍不能执行，过期确认也不能复用",
     { approved: false },
     "deny",
   );
-  await c.tasks.retry(principal, task.id);
-  await drain(c);
-  assert.equal(
-    (await c.tasks.get(principal, task.id)).error,
-    "APPROVAL_REJECTED",
+  await assert.rejects(
+    () => c.tasks.retry(principal, task.id),
+    /APPROVAL_REJECTED/,
   );
+  assert.equal((await c.tasks.get(principal, task.id)).status, "failed");
   assert.equal(
     (await c.db.pool.query("SELECT * FROM fixture_effects")).rowCount,
     0,

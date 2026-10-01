@@ -7,6 +7,7 @@ import { fingerprint } from "../contracts/fingerprint.js";
 export class Database {
   readonly pool: Pool;
   readonly cancellations: CancellationNotifications;
+  private closing = false;
   constructor(url: string) {
     this.pool = new Pool({
       connectionString: url,
@@ -14,6 +15,19 @@ export class Database {
       connectionTimeoutMillis: 5_000,
       statement_timeout: 30_000,
       idle_in_transaction_session_timeout: 30_000,
+    });
+    // pg 会移除断开的空闲连接；必须接住池事件，避免数据库重启直接终止进程。
+    this.pool.on("error", (error) => {
+      if (this.closing) return;
+      const code =
+        "code" in error &&
+        typeof error.code === "string" &&
+        /^[A-Z0-9]{5}$/.test(error.code)
+          ? error.code
+          : "UNKNOWN";
+      process.stderr.write(
+        JSON.stringify({ event: "database.idle_connection_lost", code }) + "\n",
+      );
     });
     this.cancellations = new CancellationNotifications(this.pool);
   }
@@ -62,6 +76,7 @@ export class Database {
     });
   }
   async close(): Promise<void> {
+    this.closing = true;
     await this.cancellations.close();
     await this.pool.end();
   }
