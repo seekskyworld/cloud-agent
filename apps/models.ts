@@ -16,6 +16,7 @@ const Demo = z
 export const ModelOptions = z
   .object({
     protocol: z.enum(["completions", "responses"]).optional(),
+    maxOutputTokens: z.number().int().min(16).max(131072).optional(),
     reasoningLevels: z
       .array(
         z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
@@ -85,7 +86,7 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
       capabilities: {
         progress: true,
         structuredOutput: "validated",
-        maxOutputTokens: 2048,
+        maxOutputTokens: config.maxOutputTokens ?? 8192,
         reasoning: config.reasoningLevels ?? ["none"],
         cache: true,
       },
@@ -101,6 +102,7 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
           apiKey: bearer(connection.secret),
           model: config.model,
           protocol: config.protocol,
+          maxOutputTokens: config.maxOutputTokens,
           inputPrice: config.inputPrice,
           outputPrice: config.outputPrice,
           reasoning:

@@ -59,6 +59,7 @@ export class PiEngine implements ModelEngine {
       model: string;
       inputPrice: number;
       outputPrice: number;
+      maxOutputTokens?: number;
       reasoning?: boolean;
       reasoningLevels?: ReasoningLevel[];
       lifecycle?: ModelLifecyclePolicy;
@@ -68,11 +69,11 @@ export class PiEngine implements ModelEngine {
     this.capabilities = {
       progress: true,
       structuredOutput: "validated",
-      maxOutputTokens: 2048,
+      maxOutputTokens: config.maxOutputTokens ?? 8192,
       reasoning: config.reasoningLevels ?? ["none"],
       cache: true,
     };
-    this.id = `pi:0.85.1:lifecycle-v2:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels })}`;
+    this.id = `pi:0.85.1:lifecycle-v2:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels, ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }) })}`;
     this.lifecycle = config.lifecycle ?? {
       resourceId: `pi:${fingerprint(config.baseUrl)}`,
       firstOutputTimeoutMs: 90000,
@@ -101,7 +102,7 @@ export class PiEngine implements ModelEngine {
         cacheWrite: config.inputPrice,
       },
       contextWindow: 32000,
-      maxTokens: 2048,
+      maxTokens: config.maxOutputTokens ?? 8192,
     };
   }
   private message(message: ModelMessage): Message {

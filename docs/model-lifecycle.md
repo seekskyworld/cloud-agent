@@ -76,3 +76,14 @@ pnpm model:probe --allow-external-call
 ## 可选 Responses 协议
 
 Pi 默认使用 Chat Completions；`MODEL_OPTIONS={"protocol":"responses"}` 或模型配置中的 `protocol` 可选择 Responses。端点沿用供应商实际根地址，不自动补 `/v1`。两条路径共用持久请求、预算、用量和截止机制。本次适配器标识为 `lifecycle-v2`，升级前排空旧模型任务或保留兼容 Worker。新协议未做真实网关联调。
+
+
+## 包含推理开销的输出额度
+
+Responses 的 `max_output_tokens` 包含可见输出和推理 tokens；参考 [OpenAI Responses 文档](https://developers.openai.com/api/reference/resources/responses/methods/create)。兼容网关可能忽略请求的推理档位或输出上限，不能依据正文短就认定总用量很少。
+
+Pi 现在默认允许模块显式请求最多 8192 tokens，`MODEL_OPTIONS.maxOutputTokens` / 命名 profile 的同名字段可设置模型准入上限（16–131072）。**未显式指定的单次请求仍为 2048**；此改动不自动提高旧模块的调用额度。模块应按供应商的总输出预算设置自己的 `maxOutputTokens`，且不超过模型准入上限。配置的上限是应用约束，不承诺远端供应商实际停止生成或计费。
+
+平台继续拒绝供应商标为输出截断的结果；原有超限检查、Schema 校验及用量记账保留，不截掉推理用量、不自动重发被拒绝结果。显式配置新的模型上限进入模型指纹，修改部署配置前仍须检查在途任务兼容性；未配置该选项的既有引擎标识不变。
+
+`tests/pi-output-budget.test.ts` 使用真实本地 Responses SSE 协议，覆盖短正文加推理用量、扩大额度后的成功、旧请求额度、超出新额度、截断 JSON、配置准入和无隐式重试。
