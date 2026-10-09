@@ -1,6 +1,8 @@
 # @cloud-agent/sdk
 
-Versioned TypeScript contracts for Cloud Agent modules, tools, business packages and static UI contributions. Apache-2.0; see LICENSE and NOTICE included in this package. Node.js 24 LTS is the supported baseline.
+Build business packages that reuse Cloud Agent task execution, approvals and recovery. This SDK exposes versioned TypeScript contracts for your modules, tools, integrations and static UI contributions; the Cloud Agent host supplies the runtime.
+
+Apache-2.0; see LICENSE and NOTICE included in this package. Node.js 24 LTS is the supported baseline.
 
 The SDK is delivered as a tarball built from the matching Cloud Agent source revision. No npm registry release is currently promised:
 

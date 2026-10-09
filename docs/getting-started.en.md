@@ -1,5 +1,7 @@
 # Run a task and add a package
 
+Build a small business rule on shared execution infrastructure: run the report example, create a greeting package, then add approval and verify restart recovery. Your package supplies the rule; Cloud Agent supplies the task API, execution records, approvals and audit.
+
 Use Node.js 24 LTS, pnpm 10.6.1 and Docker Compose v2. Run from a Cloud Agent source checkout. No external model, mailbox or business service is needed.
 
 ## Run locally

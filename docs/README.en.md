@@ -1,6 +1,8 @@
 # Documentation
 
-Start with [the English quick start](getting-started.en.md) or [the project README](../README.md). Node.js 24 LTS, pnpm 10.6.1 and PostgreSQL 17 are the supported baseline. Local mode requires no token or model key. [简体中文](README.md).
+Cloud Agent is a reusable engineering framework for business AI agents. Build the rules and integrations that differ between applications; reuse task execution, approvals, recovery and audit. [简体中文](README.md).
+
+Start with [why Cloud Agent](../README.md#why-cloud-agent), then follow the [English quick start](getting-started.en.md) to run a task and add your own package. Node.js 24 LTS, pnpm 10.6.1 and PostgreSQL 17 are the supported baseline. Local mode requires no token or model key.
 
 | Goal                                                     | Guide                                                                                                                                 |
 | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |

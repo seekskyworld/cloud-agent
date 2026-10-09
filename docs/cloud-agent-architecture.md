@@ -1,6 +1,8 @@
 # 通用架构
 
-Cloud Agent 是 TypeScript 模块化代码库，默认以独立 API、Worker 和 PostgreSQL 部署，无需 Redis。它把任务运行机制与业务规则分开：API 接收任务，Worker 分步推进，PostgreSQL 保存队列、步骤、等待、结果与审计。模块及适配器是随版本发布的可信代码。
+Cloud Agent 是面向业务 AI Agent 的可复用工程框架。架构目标是让不同业务共享执行、恢复、权限和审计能力，减少每个应用重复实现同一套机制的成本。差异化规则保留在模块和业务包中，模型及外部系统通过适配器接入；新业务优先扩展这些边界，共性需求再沉淀到核心。
+
+项目采用 TypeScript 模块化代码库，默认以独立 API、Worker 和 PostgreSQL 部署，无需 Redis。API 接收任务，Worker 分步推进，PostgreSQL 保存队列、步骤、等待、结果与审计。模块及适配器是随版本发布的可信代码。
 
 ```mermaid
 flowchart LR

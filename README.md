@@ -26,55 +26,108 @@
   <a href="https://github.com/seekskyworld/cloud-agent/issues">Issues</a>
 </p>
 
+**Build business agents, not the same infrastructure twice.**
+
+Cloud Agent is a **Business Agent Framework**: a reusable engineering foundation for building and evolving business AI applications.
+
+Business agents often need tasks that survive restarts, wait for people, enforce permissions and interact with existing systems. Rebuilding those mechanisms for each business means repeating the same engineering work.
+
+Cloud Agent brings that common code into one framework. Define your business rules in modules, connect your systems through adapters, and reuse the execution infrastructure across applications. You own the application, its data and how it evolves.
+
 ![Cloud Agent: modular and extensible, recoverable tasks, self-hosted, Apache-2.0 open source.](docs/assets/banner-en.png)
 
-A durable, permission-aware task and agent framework in TypeScript. Add business modules and adapters; reuse scheduling, checkpoints, tool approvals, waits, and audit records.
+## Why Cloud Agent?
 
-Built for developers and coding agents to create their own Agent applications with self-hosting, business extensions, and reusable infrastructure.
+- **Reusable** — Carry task execution, recovery, approvals and audit into the next business agent. Common improvements can benefit every integration that uses them.
+- **Extensible** — Add or replace modules, adapters and business packages as requirements change. Prefer extending these boundaries over modifying the core execution engine.
+- **Business-oriented** — Build flows that wait for input, require approval, resume work and deliver results. Keep domain rules, external systems and your own UI under your control.
 
-## Run
+### One foundation, different business agents
 
-Requirements: Node.js 24 LTS and Docker Compose. From the repository root:
+| Application you could build | What you implement                                     | What you reuse                                      |
+| --------------------------- | ------------------------------------------------------ | --------------------------------------------------- |
+| Report agent                | Data sources, calculations and report format           | Task execution, input waits and result delivery     |
+| Mail processing agent       | Message interpretation, routing and reply policies     | Mail connectors, identity checks and durable outbox |
+| Internal process agent      | Business rules, system adapters and domain permissions | Tool approvals, recovery and execution audit        |
+
+These are integration possibilities, not a catalog of ready-made applications. The repository includes neutral examples; your business code supplies the differences. **Reuse the infrastructure. Build only what makes your business different.**
+
+## Try the execution flow
+
+With Node.js 24 LTS and Docker Compose, run from the repository root:
 
 ```sh
 node scripts/init-env.mjs
 docker compose up -d --build --wait
 ```
 
-Open <http://localhost:3100>. **No token or model key is required.** Skip initialization when `.env` already exists; it generates new database passwords and never overwrites your configuration. The service binds to localhost and uses `default/owner`, a superadmin on a new installation. Stop with `docker compose stop`; run the Compose command again to restart.
+Open <http://localhost:3100>. **No token or model key is required for the local demo.** Skip initialization if `.env` already exists. The service binds to localhost and uses a shared development identity.
 
-| Module            | Example                                                          |
-| ----------------- | ---------------------------------------------------------------- |
-| `report`          | Real statistics, a missing-title input wait, and a JSON artifact |
-| `reviewed-report` | Confirm calculation parameters; no external write                |
-| `text`            | Explicit demo echo; actual model calls require Pi configuration  |
+1. Select `report` and submit the example values without a title. The task waits for your input.
+2. Supply a title. The task resumes, calculates statistics and offers a JSON result. Refresh the page: the task and result remain available.
+3. Try `reviewed-report` to confirm the calculation parameters before execution. The `text` example uses a demo echo until you configure a real model.
 
 ![Cloud Agent workbench](docs/assets/workbench.png)
 
-Screenshot from an isolated example environment.
+Screenshot from an isolated example environment. Stop with `docker compose stop`; data is retained. Follow the [getting started guide](docs/getting-started.en.md) to add a package and verify recovery across a Worker restart.
 
-## Extend and deploy
+## Build your first business agent
 
-The API and Worker run separately on PostgreSQL; no Redis is required. Register business modules in `modules/catalog.ts` and inject adapters in `apps/container.ts`. Use `pnpm module:create my-module` to scaffold and register a module. The React/Astryx workbench generates input forms from its schema. Detailed guides currently use Chinese:
+Start in the [development environment](docs/development.md#本地热更新) (Chinese), install dependencies, then generate a small package:
 
-- Build a business integration: [architecture](docs/cloud-agent-architecture.md) → [modules and adapters](docs/modules.md).
-- Modify code or clients: [development](docs/development.md), [API](docs/api.md), and [contributing](CONTRIBUTING.md).
-- Deploy and upgrade: [operations](docs/operations.md), [permissions](docs/administration.md), and [changelog](CHANGELOG.md).
+```sh
+pnpm install --frozen-lockfile
+pnpm package:create greeting
+pnpm exec tsx --conditions=development --test modules/greeting-package/contract.test.ts
+```
 
-Local mode shares one identity; multi-user use needs authentication. Approvals belong to the task owner or an explicitly scoped delegate. Current limits include application-level workspace isolation and no dynamic plugin sandbox, complete multi-tenant SaaS, or automatic checkpoint migration. Remote writes depend on external idempotency or reconciliation; cancellation cannot undo them. Real providers and business systems need separate integration testing.
+The generator creates the package and registers it. The [runnable tutorial](docs/getting-started.en.md#add-a-neutral-package) covers enabling it, granting its capability and submitting the first task.
 
-Optional [multi-mailbox integration](docs/operations.md#可选邮件通道) supports AgentMail and standard IMAP/SMTP, isolated accounts, incoming tasks, input/approval replies, and a durable outbox. OAuth tokens must be supplied and refreshed externally. It is disabled by default and requires mailbox credentials and explicit sender bindings.
+| Change                                          | Where your code goes                                            |
+| ----------------------------------------------- | --------------------------------------------------------------- |
+| Inputs, rules, execution steps and results      | Generated `modules/greeting-package/index.ts`                   |
+| Package registration                            | `modules/packages.ts`, updated by the generator                 |
+| External systems or domain storage, when needed | Adapters and typed ports, assembled in `apps/business-ports.ts` |
+| Custom pages, when needed                       | Business components registered in `modules/business-views.ts`   |
 
-Optional [extension infrastructure](docs/extending.md) includes signed webhooks, scoped connections and credentials, local/S3 file artifacts, per-module model profiles, and fair admission quotas. Use `pnpm doctor` for offline configuration checks and `pnpm extension:create mail|channel <id>` for connector scaffolds.
+Enable the package through `BUSINESS_PACKAGES` and explicitly grant its capability to existing identities. A single module can also start with `pnpm module:create my-module`, which updates `modules/catalog.ts`.
 
-Business packages use `pnpm package:create my-business`, `cloud-agent/sdk`, deployment resource bindings and separate static UI registration. The browser-safe `cloud-agent/client` validates core API contracts; `/v1/openapi.json` documents the public platform routes. Optional context providers preserve authorized snapshots, and structured model results are schema-validated. See the [integration guide](docs/extending.md) and [API reference](docs/api.md).
+In the tutorial, a greeting rule becomes a tool that requires approval. You change the package code and configuration; the framework provides the task API, approval records, restart recovery and audit. As the business grows, add its own routes, data migrations, jobs or pages through the [business package interfaces](docs/extending.md#完整应用与独立制品) (Chinese).
 
-For application integration, start with the [business reuse guide](docs/business-reuse.md) (Chinese): transactional mail, controlled service receipts, composed approvals, optional cookies/public pages, and recovery checks reuse existing framework services.
+For developers and coding agents: start with the [business reuse guide](docs/business-reuse.md) and [module contracts](docs/modules.md) (Chinese). Validate authorization, failures, recovery and external side effects as well as the successful path. Use the existing extension points first, and evolve the core when a requirement is shared across businesses.
 
-The optional application package protocol contributes migrations, protected routes, durable jobs and static UI pages. No domain-specific applications are bundled; register your own packages and typed ports through the static manifests. `pnpm sdk:build` produces an independently consumable `@cloud-agent/sdk` artifact (not published to npm). Deployment revisions, process execution, OIDC, scoped delegation, child tasks, explicit memory, cost reservations and joint database/object recovery are opt-in; local mode still needs no token. See the [extension guide](docs/extending.md) and [operations guide](docs/operations.md) for supported boundaries.
+## How the pieces fit
 
-## License
+```mermaid
+flowchart LR
+  UI[Your UI / workbench / API client] --> API[API: authorize and create tasks]
+  API <--> DB[(PostgreSQL: task state and audit)]
+  Worker[Worker: execute and recover] <--> DB
+  Worker --> Modules[Business modules: rules and steps]
+  Worker --> Adapters[Tools and adapters]
+  Adapters --> Systems[Models / business systems]
+```
 
-Apache-2.0: [LICENSE](LICENSE), [NOTICE](NOTICE). Dependencies retain their [own licenses](THIRD_PARTY_NOTICES.txt). `private: true` prevents accidental npm publishing; this is an open-source application. Report vulnerabilities according to [SECURITY.md](SECURITY.md).
+The TypeScript API and Worker run separately on PostgreSQL; no Redis is required. Modules describe the business flow, tools and adapters perform external actions, and the runtime tracks execution. See the [architecture](docs/cloud-agent-architecture.md) for contracts and recovery semantics (Chinese).
 
-Maintenance and compatibility: [support](SUPPORT.md), [governance](GOVERNANCE.md), [contributing](CONTRIBUTING.md). Source/SDK release candidates include provenance, checksums and an SBOM; see [artifact preparation](docs/development.md#候选交付包). CI does not publish packages or images automatically.
+| Layer                           | Available capabilities                                                                          | Start here                                                                                                     |
+| ------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Core framework                  | Task lifecycle, durable steps, waits, approvals, access checks and audit                        | [Modules](docs/modules.md)                                                                                     |
+| Optional infrastructure         | AgentMail or IMAP/SMTP, signed webhooks, connections, local/S3 files, model profiles and quotas | [Extensions](docs/extending.md), [mail](docs/mail-architecture.md)                                             |
+| Business development interfaces | SDK, HTTP API, packages, custom pages and context providers                                     | [Business reuse](docs/business-reuse.md), [API](docs/api.md), [external packages](docs/external-extensions.md) |
+
+These guides currently use Chinese. Enable only the integrations you need; real providers require credentials, configuration and separate validation. OAuth authorization and token refresh are supplied by the host. The SDK can be built as an independent tarball; it is not currently published to npm.
+
+## Build and operate your own application
+
+Self-host, adapt the code and maintain your own business packages under Apache-2.0. Cloud Agent supplies reusable execution mechanisms; you choose the domain model, integrations and application experience.
+
+Before multi-user deployment, configure authentication. Workspace isolation is enforced by application code; deployed modules are trusted code, with no dynamic plugin sandbox or automatic checkpoint migration. Remote writes still need business-specific idempotency or reconciliation, and cancellation cannot undo an action already taken. See [supported boundaries](SUPPORT.md) and [operations](docs/operations.md) (Chinese).
+
+For deeper work: [documentation index](docs/README.en.md), [development and verification](docs/development.md), [permissions](docs/administration.md), [model lifecycle](docs/model-lifecycle.md), and [release preparation](docs/development.md#候选交付包).
+
+## Contributing and license
+
+Share a reusable improvement, add an adapter, or improve the guides. See [contributing](CONTRIBUTING.md), [governance](GOVERNANCE.md), [security](SECURITY.md) and [changelog](CHANGELOG.md).
+
+**Apache-2.0** permits use, modification and commercial distribution under its terms: [LICENSE](LICENSE), [NOTICE](NOTICE). Dependencies retain their [own licenses](THIRD_PARTY_NOTICES.txt). `private: true` prevents accidental npm publishing; source and SDK delivery are described in the development guide.
