@@ -1,11 +1,7 @@
 /** 只传安全错误码；写入只有适配器明确证明未被接收时才允许重试。 */
 import { Problem, type Outcome } from "./index.js";
 export type FailureCategory =
-  | "permanent"
-  | "authorization"
-  | "transient"
-  | "rate_limited"
-  | "unknown";
+  "permanent" | "authorization" | "transient" | "rate_limited" | "unknown";
 export class ExecutionFailure extends Error {
   readonly code: string;
   constructor(

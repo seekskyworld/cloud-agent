@@ -26,8 +26,7 @@ afterEach(async () => {
 const create = (
   moduleId = "report",
   input = { title: "指标", values: [1, 2, 3] } as
-    | Record<string, never>
-    | { title: string; values: number[] },
+    Record<string, never> | { title: string; values: number[] },
 ) => c.tasks.create(principal, moduleId, input, randomUUID());
 function custom(tool: Tool): Module {
   return {

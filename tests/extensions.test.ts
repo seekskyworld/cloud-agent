@@ -315,9 +315,8 @@ test("Compose 空邮件变量复用共用凭据，显式邮件 JSON 不被共用
 });
 
 test("命名 Pi 配置使用授权连接实际调用协议，密钥轮换不改指纹", async () => {
-  const { createModelProfiles, loadModelProfiles } = await import(
-    "../apps/models.js"
-  );
+  const { createModelProfiles, loadModelProfiles } =
+    await import("../apps/models.js");
   const { Connections } = await import("../packages/connections/index.js");
   const { principal } = await import("./helpers.js");
   const observed: string[] = [];

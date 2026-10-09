@@ -63,8 +63,7 @@ export function reportModule(requireApproval = false): Module {
         data.title ??
         (
           steps.find((s) => s.key === "title")?.output as
-            | { title?: string }
-            | undefined
+            { title?: string } | undefined
         )?.title;
       if (!title)
         return {

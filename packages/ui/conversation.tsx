@@ -223,9 +223,9 @@ export function ConversationPanel({
             (Boolean(selected) && detail?.task.id !== selected) ||
             Boolean(
               detail &&
-                ["queued", "running", "retry_scheduled"].includes(
-                  detail.task.status,
-                ),
+              ["queued", "running", "retry_scheduled"].includes(
+                detail.task.status,
+              ),
             )
           }
         >

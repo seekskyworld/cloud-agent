@@ -7,11 +7,7 @@ import { bounded } from "../contracts/lifecycle.js";
 import type { ProcessModule } from "../contracts/execution.js";
 export type { ProcessModule } from "../contracts/execution.js";
 export type Operation =
-  | "next"
-  | "validate"
-  | "authorize"
-  | "execute"
-  | "reconcile";
+  "next" | "validate" | "authorize" | "execute" | "reconcile";
 export interface ExecutionHost {
   invoke(
     spec: ProcessModule,

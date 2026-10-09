@@ -248,9 +248,8 @@ test("邮件默认关闭，启用必须提供 Key、邮箱和显式绑定，Webh
 });
 
 test("Webhook 注册保存一次性凭据，可重入且结果不明不自动再次 POST", async () => {
-  const { registerWebhook } = await import(
-    "../adapters/agentmail/registration.js"
-  );
+  const { registerWebhook } =
+    await import("../adapters/agentmail/registration.js");
   const saved: Record<string, string> = {};
   let posts = 0;
   const hooks: object[] = [];

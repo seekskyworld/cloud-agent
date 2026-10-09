@@ -211,9 +211,8 @@ test("辅助循环失败可恢复且独立记录健康，不传播供应商异�
 });
 
 test("模块命令生成可编译可执行模块，清单注册且重复执行不覆盖源码", async (t) => {
-  const { mkdtemp, mkdir, writeFile, readFile, symlink, rm } = await import(
-    "node:fs/promises"
-  );
+  const { mkdtemp, mkdir, writeFile, readFile, symlink, rm } =
+    await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join, resolve } = await import("node:path");
   const { pathToFileURL } = await import("node:url");

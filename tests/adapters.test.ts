@@ -85,7 +85,25 @@ test("Pi 真正完成单轮协议调用并规范化工具请求，不执行工�
   const app = Fastify();
   let requestedTool = "";
   app.post("/chat/completions", async (req, reply) => {
-    const body = req.body as { tools: { function: { name: string } }[] };
+    const body = req.body as {
+      tools: {
+        function: {
+          name: string;
+          description: string;
+          parameters: { type: string; properties: unknown; required: string[] };
+        };
+      }[];
+      messages: { role: string; content: string }[];
+    };
+    assert.deepEqual(body.messages, [
+      { role: "system", content: "test" },
+      { role: "user", content: "test" },
+    ]);
+    assert.equal(body.tools[0]!.function.description, "search");
+    const parameters = body.tools[0]!.function.parameters;
+    assert.equal(parameters.type, "object");
+    assert.deepEqual(parameters.properties, { query: { type: "string" } });
+    assert.deepEqual(parameters.required, ["query"]);
     requestedTool = body.tools[0]!.function.name;
     assert.match(requestedTool, /^[A-Za-z0-9_]+$/);
     assert.equal(req.headers.authorization, "Bearer fixture-key");

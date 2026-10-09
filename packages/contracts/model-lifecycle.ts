@@ -16,11 +16,7 @@ export interface ModelCallContext {
 }
 export interface ModelReceipt {
   state:
-    | "running"
-    | "unknown"
-    | "transport_closed"
-    | "not_started"
-    | "completed";
+    "running" | "unknown" | "transport_closed" | "not_started" | "completed";
   usage?: { costUsd: number; estimated: boolean; complete: boolean };
 }
 export interface ModelControl {

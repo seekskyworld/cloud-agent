@@ -726,9 +726,8 @@ test("模块选择不同模型，运行记录实际引擎，恢复指纹只绑�
 
 test("装配中途失败也释放已创建扩展，显式渠道/邮件注入覆盖默认配置", async () => {
   const { modelProviders } = await import("../apps/models.js");
-  const { defineExtension } = await import(
-    "../packages/extensions/registry.js"
-  );
+  const { defineExtension } =
+    await import("../packages/extensions/registry.js");
   let closed = 0;
   const schema = z.object({
     id: z.string(),

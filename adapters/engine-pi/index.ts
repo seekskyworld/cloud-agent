@@ -18,11 +18,11 @@ import {
 /** Pi 只执行一轮模型请求；工具与检查点由平台持有，SDK 私有类型不出适配层。 */
 import { streamSimple as responses } from "@earendil-works/pi-ai/api/openai-responses";
 import { streamSimple as completions } from "@earendil-works/pi-ai/api/openai-completions";
+import { normalizeContext } from "@earendil-works/pi-ai/utils/transcript";
 import type {
   Message,
   Model,
   Usage,
-  Context,
   SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
 import { Type } from "typebox";
@@ -73,7 +73,8 @@ export class PiEngine implements ModelEngine {
       reasoning: config.reasoningLevels ?? ["none"],
       cache: true,
     };
-    this.id = `pi:0.85.1:lifecycle-v2:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels, ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }) })}`;
+    // SDK 协议实现参与恢复指纹；升级后由兼容旧 Worker 排空已有模型任务。
+    this.id = `pi:1.0.4:lifecycle-v2:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels, ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }) })}`;
     this.lifecycle = config.lifecycle ?? {
       resourceId: `pi:${fingerprint(config.baseUrl)}`,
       firstOutputTimeoutMs: 90000,
@@ -163,7 +164,8 @@ export class PiEngine implements ModelEngine {
     let httpFailure: ExecutionFailure | undefined;
     if (this.config.managed && !context?.invocation)
       throw new Problem(422, "MODEL_INVOCATION_REQUIRED");
-    const modelContext: Context = {
+    // Pi 1.x 将系统指令和工具声明编码到 transcript，不能仅靠类型断言适配。
+    const modelContext = normalizeContext({
       systemPrompt: request.instructions,
       messages: request.messages.map((message) => this.message(message)),
       tools: tools.map((tool) => ({
@@ -171,7 +173,7 @@ export class PiEngine implements ModelEngine {
         description: tool.description,
         parameters: Type.Unsafe(z.toJSONSchema(tool.input)),
       })),
-    };
+    });
     const streamOptions: SimpleStreamOptions = {
       apiKey: this.config.apiKey,
       headers:

@@ -32,11 +32,11 @@ export const recordsPort = definePort<Records>(
   (value): value is Records =>
     Boolean(
       value &&
-        typeof value === "object" &&
-        "list" in value &&
-        typeof value.list === "function" &&
-        "write" in value &&
-        typeof value.write === "function",
+      typeof value === "object" &&
+      "list" in value &&
+      typeof value.list === "function" &&
+      "write" in value &&
+      typeof value.write === "function",
     ),
 );
 export const recordsPackage = defineBusinessPackage({

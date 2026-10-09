@@ -33,10 +33,10 @@ function isTypeOnly(node) {
   if (ts.isExportDeclaration(node))
     return Boolean(
       node.isTypeOnly ||
-        (node.exportClause &&
-          ts.isNamedExports(node.exportClause) &&
-          node.exportClause.elements.length &&
-          node.exportClause.elements.every((item) => item.isTypeOnly)),
+      (node.exportClause &&
+        ts.isNamedExports(node.exportClause) &&
+        node.exportClause.elements.length &&
+        node.exportClause.elements.every((item) => item.isTypeOnly)),
     );
   if (node.importClause?.isTypeOnly) return true;
   // 默认导入仍是值依赖，即使命名导入全部标记为 type。
@@ -44,9 +44,9 @@ function isTypeOnly(node) {
   const bindings = node.importClause?.namedBindings;
   return Boolean(
     bindings &&
-      ts.isNamedImports(bindings) &&
-      bindings.elements.length &&
-      bindings.elements.every((item) => item.isTypeOnly),
+    ts.isNamedImports(bindings) &&
+    bindings.elements.length &&
+    bindings.elements.every((item) => item.isTypeOnly),
   );
 }
 

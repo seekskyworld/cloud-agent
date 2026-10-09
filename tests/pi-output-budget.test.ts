@@ -1,6 +1,7 @@
 /** 实际 Responses SSE 协议：总输出含推理用量，不能用可见文字长度替代。 */
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import Fastify from "fastify";
 import { PiEngine } from "../adapters/engine-pi/index.js";
 import { ModelOptions } from "../apps/models.js";
@@ -95,9 +96,15 @@ for (const scenario of [
     let calls = 0;
     api.post("/responses", async (req, reply) => {
       calls++;
-      const body = req.body as { max_output_tokens: number; tools: unknown[] };
+      const body = req.body as {
+        max_output_tokens: number;
+        tools: unknown[];
+        input: { role: string; content: unknown }[];
+      };
       assert.equal(body.max_output_tokens, scenario.limit ?? 2048);
       assert.deepEqual(body.tools, []);
+      assert.equal(body.input[0]?.role, "system");
+      assert.deepEqual(body.input[0]?.content, "Return JSON");
       return reply
         .type("text/event-stream")
         .send(responseStream(scenario.tokens, scenario.status));
@@ -152,6 +159,15 @@ test("configured model ceiling is validated and participates in the engine finge
     outputPrice: 4,
   };
   const standard = new PiEngine(config);
+  // 防止仅更新依赖后仍把旧 SDK 的检查点视为兼容结果。
+  const manifest = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { dependencies: Record<string, string> };
+  assert.ok(
+    standard.id.startsWith(
+      `pi:${manifest.dependencies["@earendil-works/pi-ai"]}:`,
+    ),
+  );
   const custom = new PiEngine({
     ...config,
     ...ModelOptions.parse({ maxOutputTokens: 16384 }),

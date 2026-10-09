@@ -81,14 +81,12 @@ export async function exportBundle(
         mode: 0o600,
       });
     } catch (error) {
-      if (
-        !(
-          error &&
-          typeof error === "object" &&
-          "code" in error &&
-          error.code === "EEXIST"
-        )
-      )
+      if (!(
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "EEXIST"
+      ))
         throw error;
     }
     files.push({

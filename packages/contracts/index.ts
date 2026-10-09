@@ -136,13 +136,7 @@ export type ModelMessage = {
   calls?: ModelTurn["calls"];
 };
 export type ReasoningLevel =
-  | "none"
-  | "minimal"
-  | "low"
-  | "medium"
-  | "high"
-  | "xhigh"
-  | "max";
+  "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 export type ModelRequest = {
   stream?: boolean;
   contexts?: import("./context.js").ContextReference[];
