@@ -46,6 +46,7 @@ const emptyUsage: Usage = {
 };
 const wireName = (name: string) => `t_${Buffer.from(name).toString("hex")}`;
 export class PiEngine implements ModelEngine {
+  static readonly compatibility = "pi:1.0.4:lifecycle-v2";
   readonly capabilities: NonNullable<ModelEngine["capabilities"]>;
   readonly id: string;
   readonly lifecycle: ModelLifecyclePolicy;
@@ -74,7 +75,7 @@ export class PiEngine implements ModelEngine {
       cache: true,
     };
     // SDK 协议实现参与恢复指纹；升级后由兼容旧 Worker 排空已有模型任务。
-    this.id = `pi:1.0.4:lifecycle-v2:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels, ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }) })}`;
+    this.id = `${PiEngine.compatibility}:${config.model}:${fingerprint({ protocol: config.protocol ?? "completions", baseUrl: config.baseUrl, managed: config.managed, reasoningLevels: config.reasoningLevels, ...(config.maxOutputTokens === undefined ? {} : { maxOutputTokens: config.maxOutputTokens }) })}`;
     this.lifecycle = config.lifecycle ?? {
       resourceId: `pi:${fingerprint(config.baseUrl)}`,
       firstOutputTimeoutMs: 90000,

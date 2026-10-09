@@ -82,7 +82,7 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
             return { baseUrl: c.endpoint, apiKey: bearer(c.secret) };
           }, config.managed)
         : undefined,
-      id: `pi:0.85.1:lifecycle-v2:${config.id}:${fingerprint({ config, connection: connections.definitions.find((c) => c.id === config.connection) })}`,
+      id: `${PiEngine.compatibility}:${config.id}:${fingerprint({ config, connection: connections.definitions.find((c) => c.id === config.connection) })}`,
       capabilities: {
         progress: true,
         structuredOutput: "validated",

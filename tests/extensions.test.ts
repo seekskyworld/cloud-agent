@@ -315,6 +315,7 @@ test("Compose 空邮件变量复用共用凭据，显式邮件 JSON 不被共用
 });
 
 test("命名 Pi 配置使用授权连接实际调用协议，密钥轮换不改指纹", async () => {
+  const { PiEngine } = await import("../adapters/engine-pi/index.js");
   const { createModelProfiles, loadModelProfiles } =
     await import("../apps/models.js");
   const { Connections } = await import("../packages/connections/index.js");
@@ -387,6 +388,7 @@ test("命名 Pi 配置使用授权连接实际调用协议，密钥轮换不改�
         tools: [],
       },
       signal = AbortSignal.timeout(5000);
+    assert.ok(first.engine.id.startsWith(`${PiEngine.compatibility}:`));
     await assert.rejects(first.engine.next(request, [], signal), {
       code: "MODEL_CONTEXT_REQUIRED",
     });
