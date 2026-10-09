@@ -100,7 +100,7 @@
     "tsx": "4.23.15",
     "typescript": "5.9.3",
     "typescript-eslint": "^8.71.1",
-    "vite": "^7.1.0"
+    "vite": "^8.3.3"
   },
   "description": "A durable, permission-aware task runtime with pluggable modules and model adapters",
   "license": "Apache-2.0",
