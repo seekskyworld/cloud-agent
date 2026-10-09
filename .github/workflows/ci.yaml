@@ -27,7 +27,10 @@ jobs:
           POSTGRES_PASSWORD: local-test-only
           POSTGRES_DB: cloud_agent_test
         ports: ["55439:5432"]
-        options: --health-cmd='pg_isready -U cloud_agent_test' --health-interval=2s --health-retries=30
+        options: >-
+          --health-cmd="pg_isready -U cloud_agent_test"
+          --health-interval=2s
+          --health-retries=30
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
