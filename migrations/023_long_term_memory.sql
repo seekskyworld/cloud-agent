@@ -1,0 +1,3 @@
+CREATE TABLE agent_memories(id uuid PRIMARY KEY,workspace_id text NOT NULL,principal_id text NOT NULL,namespace text NOT NULL,content text NOT NULL,version integer NOT NULL DEFAULT 1,expires_at timestamptz NOT NULL,deleted_at timestamptz,created_at timestamptz NOT NULL DEFAULT now(),FOREIGN KEY(workspace_id,principal_id) REFERENCES principals(workspace_id,id));
+CREATE INDEX agent_memories_owner_idx ON agent_memories(workspace_id,principal_id,namespace);
+CREATE TABLE memory_commands(workspace_id text NOT NULL,principal_id text NOT NULL,key text NOT NULL,hash text NOT NULL,memory_id uuid NOT NULL REFERENCES agent_memories(id),PRIMARY KEY(workspace_id,principal_id,key));

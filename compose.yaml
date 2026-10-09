@@ -1,0 +1,117 @@
+name: cloud-agent
+x-runtime: &runtime
+  image: cloud-agent:local
+  build: .
+  init: true
+  read_only: true
+  tmpfs: ["/tmp"]
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  environment: &environment
+    DATABASE_URL: postgres://cloud_agent_app:${RUNTIME_PASSWORD:?set RUNTIME_PASSWORD}@db:5432/cloud_agent
+    AUTH_MODE: ${AUTH_MODE:-none}
+    LOCAL_WORKSPACE: ${LOCAL_WORKSPACE:-default}
+    LOCAL_PRINCIPAL: ${LOCAL_PRINCIPAL:-owner}
+    MODEL_MODE: ${MODEL_MODE:-demo}
+    LLM_API_KEY: ${LLM_API_KEY:-}
+    LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+    LLM_MODEL: ${LLM_MODEL:-gpt-4.1-mini}
+    LLM_INPUT_PRICE: ${LLM_INPUT_PRICE:-1}
+    LLM_OUTPUT_PRICE: ${LLM_OUTPUT_PRICE:-4}
+    WORKER_CONCURRENCY: ${WORKER_CONCURRENCY:-2}
+    CONNECTIONS: ${CONNECTIONS:-}
+    CONNECTION_CREDENTIALS: ${CONNECTION_CREDENTIALS:-}
+    CONNECTION_CREDENTIALS_FILE: ${CONNECTION_CREDENTIALS_FILE:-}
+    CHANNEL_ACCOUNTS: ${CHANNEL_ACCOUNTS:-}
+    MODEL_OPTIONS: ${MODEL_OPTIONS:-}
+    MODEL_PROFILES: ${MODEL_PROFILES:-}
+    ARTIFACT_STORES: ${ARTIFACT_STORES:-}
+    DEPLOYMENT_MANAGED: ${DEPLOYMENT_MANAGED:-false}
+    COST_POLICY: ${COST_POLICY:-}
+    OIDC_AUTH: ${OIDC_AUTH:-}
+    MEMORY_ENABLED: ${MEMORY_ENABLED:-false}
+    EXECUTION_POOL: ${EXECUTION_POOL:-default}
+    EXECUTION_LABELS: ${EXECUTION_LABELS:-}
+    TENANT_RATE_PER_MINUTE: ${TENANT_RATE_PER_MINUTE:-}
+    OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: ${OTEL_EXPORTER_OTLP_TRACES_ENDPOINT:-}
+    ARTIFACT_STORE: ${ARTIFACT_STORE:-}
+    ARTIFACT_RETENTION_DAYS: ${ARTIFACT_RETENTION_DAYS:-30}
+    DISPATCH_POLICY: ${DISPATCH_POLICY:-}
+    BUSINESS_PACKAGES: ${BUSINESS_PACKAGES:-}
+    EXAMPLES_ENABLED: ${EXAMPLES_ENABLED:-false}
+    MAIL_MODE: ${MAIL_MODE:-disabled}
+    MAIL_ACCOUNTS: ${MAIL_ACCOUNTS:-}
+    MAIL_CREDENTIALS: ${MAIL_CREDENTIALS:-}
+    MAIL_CREDENTIALS_FILE: ${MAIL_CREDENTIALS_FILE:-}
+    MAIL_WORKSPACE: ${MAIL_WORKSPACE:-default}
+    MAIL_BINDINGS: ${MAIL_BINDINGS:-}
+    MAIL_SEND_ENABLED: ${MAIL_SEND_ENABLED:-false}
+    MAIL_INITIAL_SCAN: ${MAIL_INITIAL_SCAN:-process}
+    MAIL_POLL_INTERVAL_MS: ${MAIL_POLL_INTERVAL_MS:-5000}
+    AGENTMAIL_INBOX: ${AGENTMAIL_INBOX:-}
+    AGENTMAIL_API_KEY: ${AGENTMAIL_API_KEY:-}
+    AGENTMAIL_BASE_URL: ${AGENTMAIL_BASE_URL:-https://api.agentmail.to/v0}
+    AGENTMAIL_DOWNLOAD_HOSTS: ${AGENTMAIL_DOWNLOAD_HOSTS:-cdn.agentmail.to}
+    AGENTMAIL_RECEIVE_MODE: ${AGENTMAIL_RECEIVE_MODE:-poll}
+    AGENTMAIL_RECONCILE_INTERVAL_MS: ${AGENTMAIL_RECONCILE_INTERVAL_MS:-300000}
+    AGENTMAIL_WEBHOOK_TOKEN: ${AGENTMAIL_WEBHOOK_TOKEN:-}
+    AGENTMAIL_WEBHOOK_SECRET: ${AGENTMAIL_WEBHOOK_SECRET:-}
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: cloud_agent
+      POSTGRES_USER: cloud_agent_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes: ["database:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cloud_agent_owner -d cloud_agent"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+  migrate:
+    <<: *runtime
+    environment:
+      DATABASE_URL: postgres://cloud_agent_owner:${POSTGRES_PASSWORD}@db:5432/cloud_agent
+      MIGRATION_DATABASE_URL: postgres://cloud_agent_owner:${POSTGRES_PASSWORD}@db:5432/cloud_agent
+      RUNTIME_PASSWORD: ${RUNTIME_PASSWORD}
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN:-}
+      BUSINESS_PACKAGES: ${BUSINESS_PACKAGES:-}
+      EXAMPLES_ENABLED: ${EXAMPLES_ENABLED:-false}
+      AUTH_MODE: ${AUTH_MODE:-none}
+      LOCAL_WORKSPACE: ${LOCAL_WORKSPACE:-default}
+      LOCAL_PRINCIPAL: ${LOCAL_PRINCIPAL:-owner}
+    command:
+      [
+        "sh",
+        "-c",
+        "node dist/scripts/migrate.js && node dist/scripts/bootstrap.js && node dist/scripts/provision.js && node dist/scripts/migrate-business.js",
+      ]
+    depends_on:
+      db:
+        condition: service_healthy
+  api:
+    <<: *runtime
+    restart: unless-stopped
+    ports: ["127.0.0.1:${API_PORT:-3100}:3100"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3100/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  worker:
+    stop_grace_period: 40s
+    <<: *runtime
+    restart: unless-stopped
+    command: ["node", "dist/apps/worker/main.js"]
+volumes:
+  database:

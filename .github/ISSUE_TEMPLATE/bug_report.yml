@@ -1,0 +1,23 @@
+name: Bug report / 问题反馈
+description: Describe a reproducible problem with isolated test data.
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Expected and actual behavior / 预期与实际行为
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Minimal reproduction / 最小复现步骤
+      description: Include commands and sanitized errors. Do not include credentials or private data.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Version and environment / 版本与环境
+      description: Commit/version, OS, Node.js, pnpm, PostgreSQL, and deployment method.
+    validations:
+      required: true

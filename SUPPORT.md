@@ -1,0 +1,17 @@
+# 支持与适用范围
+
+Cloud Agent 适合需要持久执行、人工确认、等待恢复、邮件/消息入口和可替换模型的任务型 Agent。框架负责执行和通用基础设施，接入方负责业务规则、领域授权以及外部系统的幂等或结果查询。
+
+| 组件 | 当前支持基线 | 边界 |
+| --- | --- | --- |
+| 运行环境 | Node.js 24 LTS、pnpm 10.6.1、PostgreSQL 17、Docker Compose v2 | CI 基线为 Linux；其他版本需自行验证 |
+| 协议 | SDK major 1、HTTP `/v1` | 静态可信模块；旧任务需兼容模块版本及依赖指纹 |
+| 模型与工具 | Demo、Pi（Chat Completions / Responses）、多模型配置、MCP HTTP | 供应商真实凭据与生产行为需单独联调 |
+| 邮件 | AgentMail、IMAP/SMTP，多账户 | 默认关闭；OAuth 授权及令牌供应由宿主配置 |
+| 文件 | 本地和 S3 兼容存储 | 当前文件上限 10 MB，下载经任务授权 |
+| 身份 | 默认本地免 Token；可选 Token/OIDC、任务委托、宿主组合的 Cookie/邮箱登录 | 工作区为应用层隔离，不含 RLS 或不可信插件沙箱 |
+| 交付 | 源码、独立 SDK tarball、SBOM、校验清单 | 未发布 npm 或预构建镜像；不承诺托管服务 |
+
+普通问题通过实际托管仓库的 Issues 提交。提供提交号/版本、候选包 fingerprint（如有）、系统与依赖版本、启用的扩展及脱敏复现。框架问题在本仓库处理；特定业务规则或自定义供应商实现由对应包维护者处理。安全问题按 [SECURITY.md](SECURITY.md) 私下报告。
+
+支持为尽力而为，无响应时间或可用性 SLA。历史验收不代表当前所有配置都经过生产验证；复现验证见 [开发指南](docs/development.md)，故障处理见 [运维](docs/operations.md)。
