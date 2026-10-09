@@ -14,16 +14,12 @@
 </p>
 
 <p align="center">
-  <strong>English</strong> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a>
-</p>
-
-<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md" lang="zh-CN">简体中文</a> ·
+  <a href="docs/README.en.md">Docs</a> ·
   <a href="docs/getting-started.en.md">Getting started</a> ·
-  <a href="docs/README.en.md">Documentation</a> ·
-  <a href="docs/business-reuse.md">Business integration (中文)</a> ·
-  <a href="AGENTS.md">Agent guide (中文)</a> ·
-  <a href="CONTRIBUTING.md">Contributing (中文)</a> ·
-  <a href="https://github.com/seekskyworld/cloud-agent/issues">Issues</a>
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="SUPPORT.md">Support matrix</a> ·
+  <a href="#links">Links</a>
 </p>
 
 **Build business agents, not the same infrastructure twice.**
@@ -125,6 +121,16 @@ Self-host, adapt the code and maintain your own business packages under Apache-2
 Before multi-user deployment, configure authentication. Workspace isolation is enforced by application code; deployed modules are trusted code, with no dynamic plugin sandbox or automatic checkpoint migration. Remote writes still need business-specific idempotency or reconciliation, and cancellation cannot undo an action already taken. See [supported boundaries](SUPPORT.md) and [operations](docs/operations.md) (Chinese).
 
 For deeper work: [documentation index](docs/README.en.md), [development and verification](docs/development.md), [permissions](docs/administration.md), [model lifecycle](docs/model-lifecycle.md), and [release preparation](docs/development.md#候选交付包).
+
+## Links
+
+- [Repository](https://github.com/seekskyworld/cloud-agent)
+- [Releases](https://github.com/seekskyworld/cloud-agent/releases)
+- [Issues](https://github.com/seekskyworld/cloud-agent/issues)
+- [LINUX DO — community discussion](https://linux.do/)
+- [Documentation](docs/README.en.md)
+- [Business integration (中文)](docs/business-reuse.md)
+- [Agent development guide (中文)](AGENTS.md)
 
 ## Contributing and license
 

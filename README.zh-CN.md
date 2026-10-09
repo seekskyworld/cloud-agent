@@ -14,16 +14,12 @@
 </p>
 
 <p align="center">
-  <strong>简体中文</strong> · <a href="README.md" lang="en">English</a>
-</p>
-
-<p align="center">
-  <a href="docs/getting-started.md">快速开始</a> ·
+  <strong>简体中文</strong> · <a href="README.md" lang="en">English</a> ·
   <a href="docs/README.md">文档</a> ·
-  <a href="docs/business-reuse.md">业务接入</a> ·
-  <a href="AGENTS.md">Agent 开发约定</a> ·
-  <a href="CONTRIBUTING.md">贡献指南</a> ·
-  <a href="https://github.com/seekskyworld/cloud-agent/issues">问题反馈</a>
+  <a href="docs/getting-started.md">快速开始</a> ·
+  <a href="CONTRIBUTING.md">参与贡献</a> ·
+  <a href="SUPPORT.md">支持范围</a> ·
+  <a href="#links">Links</a>
 </p>
 
 **每做一个业务 Agent，不必重新造一遍基础设施。**
@@ -125,6 +121,16 @@ flowchart LR
 多人部署前需要配置认证。工作区采用应用层隔离，模块是可信部署代码，当前没有动态插件沙箱或自动检查点迁移。外部写入仍需业务实现幂等或结果查询，取消任务不能撤销已经发生的动作。适用范围见 [支持说明](SUPPORT.md)，部署、升级及恢复见 [运维指南](docs/operations.md)。
 
 深入使用：[文档索引](docs/README.md)、[开发与验证](docs/development.md)、[权限管理](docs/administration.md)、[模型生命周期](docs/model-lifecycle.md)、[候选包交付](docs/development.md#候选交付包)。
+
+## Links
+
+- [项目仓库](https://github.com/seekskyworld/cloud-agent)
+- [版本发布](https://github.com/seekskyworld/cloud-agent/releases)
+- [问题反馈](https://github.com/seekskyworld/cloud-agent/issues)
+- [LINUX DO — 社区交流](https://linux.do/)
+- [文档中心](docs/README.md)
+- [业务接入](docs/business-reuse.md)
+- [Agent 开发约定](AGENTS.md)
 
 ## 贡献与许可
 
