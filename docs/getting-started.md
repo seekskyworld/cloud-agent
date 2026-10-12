@@ -118,6 +118,8 @@ export const greetingPackage = defineBusinessPackage({
 
 教程代码由 `tests/tutorial.test.ts` 直接提取验证，包括首次未授权、等待后新 Worker 接管、拒绝审批、重复创建和完成后不重复执行。第二条组合接入路径参考 `tests/fixtures/pipeline-package.ts` 与 `tests/evolution-adapters.test.ts`：连接读取 → 模型 → 文件产物。这些是中立隔离验收，业务接入验收见 [开发指南](development.md#分发与验收范围)。
 
+greeting 工具是只读操作：这里的重启验证展示持久审批，不代表外部写入已经具备防重保证。如果外部系统已成功、Worker 却未保存结果，继续阅读 [审批到写入恢复的完整示例](business-reuse.md#审批后写入成功但结果未保存)，了解原请求键、查询核实和人工处理如何衔接。
+
 ## 在独立工程中使用 SDK
 
 从 Cloud Agent 源码构建：

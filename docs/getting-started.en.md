@@ -45,6 +45,8 @@ Submit a task, stop the development Worker while approval is pending, restart it
 
 A second integration pattern is `tests/fixtures/pipeline-package.ts`: authorized connection → model → file. Both are controlled integration tests, not evidence of external production adoption. See the [integration acceptance guide](development.md#分发与验收范围) (Chinese).
 
+The greeting tool is a read operation: restarting it demonstrates durable approval, not protection against duplicate external writes. For a write that succeeds remotely before the Worker saves its result, follow the [approval-to-recovery example](business-reuse.md#审批后写入成功但结果未保存) (Chinese). It covers stable request keys, querying the original result and manual reconciliation when the outcome cannot be established.
+
 ## Install the standalone SDK
 
 From the source checkout:

@@ -48,6 +48,32 @@ Cloud Agent brings that common code into one framework. Define your business rul
 
 These are integration possibilities, not a catalog of ready-made applications. The repository includes neutral examples; your business code supplies the differences. **Reuse the infrastructure. Build only what makes your business different.**
 
+## What happens when a write succeeds but the Worker crashes?
+
+Suppose your agent creates a ticket in an external system **after human approval**. The system creates ticket `T-42`, but the Worker stops before saving that result. Repeating the write with a new request ID could create a second ticket.
+
+```mermaid
+flowchart LR
+  A[Review exact ticket parameters] --> B[Approve and resume task]
+  B --> C[External system creates T-42]
+  C --> D[Worker stops before saving result]
+  D --> E[New Worker recovers the same step]
+  E --> F[Recover T-42 using the original request key]
+  F --> G[Save result and continue]
+```
+
+Cloud Agent persists the step before dispatch and supplies a stable `context.idempotencyKey`. After the lease expires, a compatible Worker can recover that step. **Your adapter determines how the external result can be recovered:**
+
+- **Idempotent API:** resend the same parameters with the original key; the external system must return the original ticket instead of creating another one.
+- **Queryable operation:** `reconcile` looks up the original request and returns `T-42`, without resending the create operation. An inconclusive lookup keeps the outcome unknown.
+- **Neither guarantee:** pause for manual reconciliation; do not blindly repeat the write.
+
+Approval is durable: waiting does not occupy a Worker, and a valid approval for unchanged parameters can be reused after restart. Execution still checks current permissions, approval expiry and parameter binding. Approval grants permission; it does not prove whether the external write happened.
+
+A crashed running task can be reclaimed automatically. If a tool has already reported an **unknown** outcome, the task pauses in `waiting_external`; an explicit retry invokes the permitted recovery path, not an unconditional resend. Unsafe writes require manual reconciliation. The framework does not promise exactly-once effects across arbitrary external systems.
+
+See the [tool implementation, recovery decisions and acceptance checklist](docs/business-reuse.md#审批后写入成功但结果未保存) (Chinese). This ticket flow illustrates an integration you can build; it is not a bundled ticketing application.
+
 ## Try the execution flow
 
 With Node.js 24 LTS and Docker Compose, run from the repository root:

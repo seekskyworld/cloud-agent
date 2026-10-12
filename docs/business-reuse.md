@@ -37,6 +37,111 @@
 
 默认目录不会注册这个模块，也不会发信。只有显式装配真实端口并授予能力后才能使用。编排、工具或授权语义变化时升级模块版本，保留兼容 Worker 处理旧任务。
 
+## 审批后写入成功但结果未保存
+
+以“确认后在外部系统创建工单”为例：用户确认项目与标题，外部系统创建 `T-42`，但 Worker 在保存工具结果前中断。此时外部事实是成功，本地步骤仍可能是 `running`。下面串起审批、故障和恢复；工单仅为说明，真实接口由接入方实现。
+
+### 从审批到恢复完成
+
+1. 模块用稳定 key（例如 `create-ticket`）返回工具动作，工具声明 `approval:true`。框架先保存步骤及实际参数，再进入 `waiting_approval`，释放 Worker 租约。
+2. 用户在工作台查看参数并批准；服务端检查身份、权限、等待有效期和响应 Schema，把确认消费与任务重新入队放在同一个事务中。等待期间重启 Worker 不丢失这次申请。
+3. Worker 继续原步骤，复核当前身份、领域权限和批准记录。批准仍有效、参数绑定一致时不重复询问；拒绝、过期或改参不能靠 retry 绕过。
+4. 调用前记录执行尝试，将步骤 ID 作为 `context.idempotencyKey` 传给适配器。外部系统必须保存该请求键与结果的关联；本例成功创建 `T-42`。
+5. 假设 Worker 此刻退出，没有保存结果。租约到期后，版本与配置兼容的 Worker 接管，先恢复原步骤，不从头创建新任务或生成新请求键。旧 Worker 即使晚到，也不能凭失效租约提交结果。
+6. 工具按下面的恢复策略找回 `T-42`，框架校验输出、保存成功结果。模块随后读取该步骤结果，继续后续动作或完成任务。其他已成功步骤不重算；每个后续外部写入仍需自己的副作用策略。
+
+| 外部系统提供的保证             | 工具声明与恢复动作                                             | 不能做什么                                             |
+| ------------------------------ | -------------------------------------------------------------- | ------------------------------------------------------ |
+| 同键同参数原子去重并返回原结果 | `idempotent_write`：重用原键调用 `execute`，得到原来的 `T-42`  | 不能只发送一个幂等头，就假定供应商会去重               |
+| 可按原请求键查询确定结果       | `reconcilable_write`：实现 `reconcile`，查到 `T-42` 就返回成功 | 查不到、处理中或查询超时不等于未执行，不能直接再次创建 |
+| 无幂等、无可靠查询             | `unsafe_write`：保留未知结果，等待人工核实                     | 普通 retry 会被拒绝，不能通过新建任务绕过去            |
+
+区分两个入口：**进程崩溃而任务仍为 running**，由租约到期接管触发恢复；**工具返回 unknown 或写入异常已被保存**，任务暂停在 `waiting_external`，不会自动轮询。后者通过工作台重试或 `POST /v1/tasks/:id/retry` 请求恢复，仍受审批、权限、配置及累计预算限制。可对账工具此时调用 `reconcile`；查询仍不确定，就再次暂停，不进行隐藏的重发。
+
+### 最小可对账工具
+
+此片段展示业务包中的工具工厂。`TicketPort` 是接入方实现的外部系统端口，不是框架内置连接器。`create` 必须将原请求键传给供应商，`findByRequest` 必须按该键、当前身份/工作区和原参数核对同一操作；凭据由可信宿主注入。
+
+<!-- example:ticket-recovery -->
+
+```ts
+import { z } from "zod";
+import type { ExecutionContext, Tool } from "cloud-agent/sdk";
+
+const TicketInput = z
+  .object({
+    projectId: z.string().min(1),
+    title: z.string().min(1),
+  })
+  .strict();
+const TicketResult = z.object({ ticketId: z.string().min(1) }).strict();
+
+export interface TicketPort {
+  create(
+    input: z.infer<typeof TicketInput>,
+    requestKey: string,
+    context: ExecutionContext,
+  ): Promise<z.infer<typeof TicketResult>>;
+  findByRequest(
+    requestKey: string,
+    input: z.infer<typeof TicketInput>,
+    context: ExecutionContext,
+  ): Promise<z.infer<typeof TicketResult> | null>;
+}
+
+export function createTicketTool(port: TicketPort): Tool {
+  return {
+    name: "ticket.create",
+    version: "1.0.0",
+    description: "在指定项目中创建工单",
+    input: TicketInput,
+    output: TicketResult,
+    capability: "ticket:create",
+    effect: "reconcilable_write",
+    approval: true,
+    timeoutMs: 10_000,
+    async execute(input, context) {
+      const output = await port.create(
+        TicketInput.parse(input),
+        context.idempotencyKey,
+        context,
+      );
+      return { kind: "succeeded", output };
+    },
+    async reconcile(input, context) {
+      const output = await port.findByRequest(
+        context.idempotencyKey,
+        TicketInput.parse(input),
+        context,
+      );
+      // 未查到确定结果时保持未知，不能把空结果当成重发许可。
+      return output
+        ? { kind: "succeeded", output }
+        : { kind: "unknown", reconciliationRef: context.idempotencyKey };
+    },
+  };
+}
+```
+
+端口实现须传递 `context.signal`，并把 `context.idempotencyKey` 映射为供应商请求键；不能改用当前时间、随机数或每次变化的 `runId`。查询应校验原请求的归属、参数及成功状态，不能仅凭工单标题相似判定成功。并发重复请求、去重保留期限和查询一致性都需按供应商协议验证。使用独立 SDK 制品时将导入路径换为 `@cloud-agent/sdk`。
+
+将该工具放入模块的 `tools`，由纯函数 `next` 返回 `{ kind: "tool", key: "create-ticket", name: "ticket.create", input }`；原步骤成功后读取其 `output`，不再返回创建动作。宿主负责装配端口、注册模块并显式授予能力，模块通过 `validateContext` / `authorizeRead` 复核领域权限，接入步骤见 [模块与适配器](modules.md#编排与工具)。
+
+若采用 `idempotent_write`，适配器必须先验证外部 API 真正兑现同键原结果约定；本例选择查询恢复，不在 `reconcile` 内再次调用 `create`。框架持久化和租约保护不能替代远端的去重或核实能力。
+
+### 需要人工核实时
+
+无法自动确认结果时，由具备 `task:reconcile` 和当前模块/工具能力的任务所有者核对外部回执，再通过 [人工核实接口](api.md#人工核实未知写入) 提交步骤 ID、预期尝试次数、结果、原因和回执编号。核实成功只补记原步骤结果并重新入队，**不重新发送创建请求**；不能把“没有本地成功记录”当作外部失败的证据。取消任务也不会删除已经创建的 `T-42`，撤销或补偿需单独的业务流程。
+
+### 接入时怎么验收
+
+- 审批前外部写入次数为 0；等待期间重启，申请仍在；有效批准后继续原步骤。
+- 在外部成功后、本地保存前注入中断；恢复后结果仍为 `T-42`，外部只创建一张工单。幂等方案可有多次调用但只能有一次业务写入；查询方案应保持创建调用次数为 1。
+- 查询超时、处理中或无结果时保持未知；不安全写入的普通 retry 被拒绝，人工核实补记结果也不重发。
+- 拒绝、过期、改参、撤权阻止受保护执行；旧租约和已取消任务不得提交结果。
+
+仓库的 [运行时回归](../tests/runtime.test.ts) 已覆盖“副作用已提交而结果未落库时崩溃”、同动作编号恢复、只查询不重发以及审批撤权保护；[入门教程](getting-started.md#添加工具并验证重启恢复) 可体验审批等待期间重启。这些使用受控夹具，并不证明真实供应商具有相同保证；接入方应对自己的接口重复以上验收。
+
 ## 宿主装配与同库事务
 
 [createBusinessPorts](../apps/business-ports.ts) 接收 `BusinessPortContext`：config、db、identity、tasks、conversations、transactions、mails、resources。默认返回空清单。也可通过 `createContainer(config, {portFactory, factoryResources})` 提供同步或异步工厂；与显式 ports 二选一。默认工厂的端口名同步登记到 `businessPortIds`；注入工厂必须通过 `factoryResources` 声明资源与协议，否则启动报 `FACTORY_RESOURCES_REQUIRED`。声明格式和诊断方式见 [装配约定](external-extensions.md#能力与装配)。
