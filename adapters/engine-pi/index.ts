@@ -278,6 +278,9 @@ export class PiEngine implements ModelEngine {
       costEstimated: true,
       inputTokens: output.usage.input,
       outputTokens: output.usage.output,
+      // 提示缓存命中只作为用量事实回报；费用估算口径不变。
+      cacheReadTokens: output.usage.cacheRead,
+      cacheWriteTokens: output.usage.cacheWrite,
     };
   }
 }

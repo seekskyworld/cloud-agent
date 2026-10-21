@@ -1,15 +1,24 @@
 /** 轻量会话视图复用框架任务 API；页面刷新不取消后台任务。 */
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import type { CloudAgentClient, Detail, TaskSummary } from "../api/client.js";
 import type { Json } from "../contracts/index.js";
 export function ConversationPanel({
   client,
   moduleId,
   title = "对话助手",
+  historyModuleIds,
+  composerAccessory,
+  progressLoader,
 }: {
   client: CloudAgentClient;
   moduleId: string;
   title?: string;
+  /** 历史列表额外包含的模块（同一对话的旧入口）。 */
+  historyModuleIds?: string[];
+  /** 发送按钮旁的附加控件，例如引擎选择。 */
+  composerAccessory?: ReactNode;
+  /** 长时间运行的任务进度（例如代理会话正在做什么）；运行中每 5 秒读取一次。 */
+  progressLoader?: (taskId: string) => Promise<string | undefined>;
 }) {
   const [tasks, setTasks] = useState<TaskSummary[]>([]),
     [selected, setSelected] = useState(""),
@@ -20,12 +29,38 @@ export function ConversationPanel({
   const [messages, setMessages] = useState<
     { id: string; role: string; content: Json }[]
   >([]);
+  const [progressText, setProgressText] = useState("");
+  const ownTask = (t: TaskSummary) =>
+    t.module_id === moduleId ||
+    Boolean(historyModuleIds?.includes(t.module_id));
+  const activeTaskId =
+    detail &&
+    ["queued", "running", "retry_scheduled"].includes(detail.task.status)
+      ? detail.task.id
+      : "";
+  useEffect(() => {
+    setProgressText("");
+    if (!progressLoader || !activeTaskId) return;
+    let active = true;
+    const read = () =>
+      void progressLoader(activeTaskId)
+        .then((value) => {
+          if (active) setProgressText(value ?? "");
+        })
+        .catch(() => undefined);
+    read();
+    const timer = setInterval(read, 5000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [progressLoader, activeTaskId]);
   useEffect(() => {
     let active = true;
     void client
       .call("tasks", undefined)
       .then((rows) => {
-        if (active) setTasks(rows.filter((t) => t.module_id === moduleId));
+        if (active) setTasks(rows.filter(ownTask));
       })
       .catch(() => {
         if (active) setError("暂时无法读取历史请求");
@@ -89,7 +124,7 @@ export function ConversationPanel({
       setTasks(
         await client
           .call("tasks", undefined)
-          .then((rows) => rows.filter((t) => t.module_id === moduleId)),
+          .then((rows) => rows.filter(ownTask)),
       );
     } catch (e) {
       setError(e instanceof Error ? e.message : "暂时无法发送");
@@ -151,9 +186,7 @@ export function ConversationPanel({
           setBusy(true);
           void client
             .call("tasks", undefined)
-            .then((rows) =>
-              setTasks(rows.filter((t) => t.module_id === moduleId)),
-            )
+            .then((rows) => setTasks(rows.filter(ownTask)))
             .catch(() => setError("暂时无法读取历史请求"))
             .finally(() => setBusy(false));
         }}
@@ -189,6 +222,11 @@ export function ConversationPanel({
           <p>可以直接说明你的问题或需要办理的操作。</p>
         )}
       </div>
+      {progressText && (
+        <p className="chat-progress" role="status">
+          {progressText}
+        </p>
+      )}
       {detail && !["succeeded"].includes(detail.task.status) && (
         <p role="status">
           {statusMessage(detail.task.status, detail.task.error)}
@@ -217,6 +255,7 @@ export function ConversationPanel({
             placeholder="请说明你的问题…"
           />
         </label>
+        {composerAccessory}
         <button
           disabled={
             busy ||

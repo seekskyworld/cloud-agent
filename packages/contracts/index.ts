@@ -122,6 +122,9 @@ export type ModelTurn = {
   costEstimated: boolean;
   inputTokens: number;
   outputTokens: number;
+  /** 供应商回执中的提示缓存读写 token；缺失表示适配器未报告，不代表为 0。 */
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
 };
 export type ModelContent =
   | { type: "text"; text: string }
