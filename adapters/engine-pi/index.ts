@@ -46,7 +46,7 @@ const emptyUsage: Usage = {
 };
 const wireName = (name: string) => `t_${Buffer.from(name).toString("hex")}`;
 export class PiEngine implements ModelEngine {
-  static readonly compatibility = "pi:1.0.4:lifecycle-v2";
+  static readonly compatibility = "pi:1.3.0:lifecycle-v2";
   readonly capabilities: NonNullable<ModelEngine["capabilities"]>;
   readonly id: string;
   readonly lifecycle: ModelLifecyclePolicy;
@@ -258,6 +258,10 @@ export class PiEngine implements ModelEngine {
       .map((part) => {
         const tool = tools.find((tool) => wireName(tool.name) === part.name);
         if (!tool) throw new Problem(403, "MODEL_TOOL_NOT_ALLOWED");
+        // Pi 1.3 起，参数文本不是合法 JSON 对象时 arguments 为 {} 并给出 argumentsError；
+        // 不能把空参数当作模型意图执行。
+        if (part.argumentsError)
+          throw new Problem(422, "MODEL_TOOL_ARGUMENTS_INVALID");
         return {
           id: part.id,
           name: tool.name,

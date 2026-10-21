@@ -3,6 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import Fastify from "fastify";
+import { z } from "zod";
 import { PiEngine } from "../adapters/engine-pi/index.js";
 import { ModelOptions } from "../apps/models.js";
 import { prepareModelRequest } from "../packages/runtime/model-request.js";
@@ -185,5 +186,94 @@ test("configured model ceiling is validated and participates in the engine finge
   assert.throws(
     () => prepareModelRequest(request, standard, []),
     /MODEL_OUTPUT_LIMIT_UNSUPPORTED/,
+  );
+});
+
+test("Responses tool call with malformed final arguments is never executed with empty arguments", async (t) => {
+  const api = Fastify({ forceCloseConnections: true });
+  t.after(() => api.close());
+  const item = {
+    id: "fc_fixture",
+    type: "function_call",
+    status: "completed",
+    call_id: "call_fixture",
+    // 引擎把工具名编码成 t_<hex> 发给供应商。
+    name: `t_${Buffer.from("lookup").toString("hex")}`,
+    arguments: '{"giftId": "a1",',
+  };
+  const events = [
+    {
+      type: "response.created",
+      response: { id: "resp_fixture", status: "in_progress", output: [] },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { ...item, arguments: "" },
+    },
+    {
+      type: "response.function_call_arguments.delta",
+      output_index: 0,
+      item_id: item.id,
+      delta: item.arguments,
+    },
+    {
+      type: "response.function_call_arguments.done",
+      output_index: 0,
+      item_id: item.id,
+      arguments: item.arguments,
+    },
+    { type: "response.output_item.done", output_index: 0, item },
+    {
+      type: "response.completed",
+      response: {
+        id: "resp_fixture",
+        status: "completed",
+        output: [item],
+        usage: { input_tokens: 10, output_tokens: 5, total_tokens: 15 },
+      },
+    },
+  ];
+  api.post("/responses", async (_req, reply) =>
+    reply
+      .type("text/event-stream")
+      .send(
+        events
+          .map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`)
+          .join(""),
+      ),
+  );
+  const baseUrl = await api.listen({ host: "127.0.0.1", port: 0 });
+  const engine = new PiEngine({
+    protocol: "responses",
+    baseUrl,
+    apiKey: "fixture",
+    model: "fixture",
+    inputPrice: 1,
+    outputPrice: 4,
+  });
+  const tool = {
+    name: "lookup",
+    version: "1.0.0",
+    description: "Look up a gift",
+    input: z.object({ giftId: z.string().optional() }),
+    output: z.object({}),
+    capability: "fixture",
+    effect: "read" as const,
+    timeoutMs: 1000,
+    execute: async () => ({ kind: "succeeded" as const, output: {} }),
+  };
+  const request = prepareModelRequest(
+    {
+      instructions: "Use tools",
+      messages: [{ role: "user", text: "find a1" }],
+      tools: ["lookup"],
+    },
+    engine,
+    [tool],
+  );
+  await assert.rejects(
+    engine.next(request, [tool], AbortSignal.timeout(5000)),
+    { code: "MODEL_TOOL_ARGUMENTS_INVALID" },
   );
 });
