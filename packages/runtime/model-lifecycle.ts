@@ -62,6 +62,7 @@ export class ModelLifecycle {
     signal: AbortSignal;
     deadlineAt: number;
     begin: () => Promise<void>;
+    onText?: (text: string) => unknown | Promise<unknown>;
   }) {
     const {
       task,
@@ -94,19 +95,28 @@ export class ModelLifecycle {
       await this.costs?.reserve(
         task,
         row.cost_invocation,
-        task.budget.maxCostUsd - Number(task.cost_usd),
+        task.budget.unbounded
+          ? undefined
+          : task.budget.maxCostUsd - Number(task.cost_usd),
       );
       deadline.signal.throwIfAborted();
       deadline.start();
       dispatched = true;
       // 异步收尾仍绑定原调用 ID；不能把旧结果提交回已取消或被接管的任务。
-      const execution = invokeModel(engine, request, tools, deadline.signal, {
-        principal,
-        taskId: task.id,
-        invocation: invocationReference(row),
-        progress: deadline.progress,
-        report: (receipt) => this.record(row, receipt),
-      }).then(async (value) => {
+      const execution = invokeModel(
+        engine,
+        request,
+        tools,
+        deadline.signal,
+        {
+          principal,
+          taskId: task.id,
+          invocation: invocationReference(row),
+          progress: deadline.progress,
+          report: (receipt) => this.record(row, receipt),
+        },
+        input.onText,
+      ).then(async (value) => {
         await this.completed(row, value);
         return value;
       });

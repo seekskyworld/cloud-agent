@@ -14,6 +14,7 @@ const Local = z
     provider: z.literal("local"),
     id: z.string().min(1),
     directory: z.string().min(1),
+    objectsDirectory: z.string().min(1).optional(),
   })
   .strict();
 const S3 = z
@@ -35,7 +36,8 @@ export const artifactProviders = new ExtensionRegistry<
     capabilities: ["read", "write", "delete"],
     schema: Local,
     diagnose: async () => {},
-    create: (c) => new LocalArtifacts(c.directory, c.id),
+    create: (c) =>
+      new LocalArtifacts(c.directory, c.id, c.objectsDirectory ?? c.directory),
   }),
   defineExtension<ArtifactStore, SecretProvider, typeof S3>({
     id: "s3",

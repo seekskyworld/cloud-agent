@@ -14,10 +14,12 @@ export class LocalArtifacts implements ArtifactStore {
   readonly id: string;
   private root: string;
   readonly identity: string;
-  constructor(directory: string, id = "local") {
-    this.root = resolve(directory);
+  constructor(directory: string, id = "local", objectsDirectory = directory) {
+    this.root = resolve(objectsDirectory);
     this.id = id;
-    this.identity = `local:${this.root}`;
+    // directory is the stable logical store identity; objectsDirectory may
+    // change when the physical layout is reorganized into a subdirectory.
+    this.identity = `local:${resolve(directory)}`;
   }
   private path(key: string) {
     return join(this.root, objectKey(key));

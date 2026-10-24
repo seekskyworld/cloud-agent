@@ -68,7 +68,10 @@ export class TaskGroups {
           (task.budget.maxCostUsd - Number(task.cost_usd)) / count,
         ),
       };
-      if (perChild.maxSteps < 1 || perChild.maxDurationMs < 1)
+      if (
+        !task.budget.unbounded &&
+        (perChild.maxSteps < 1 || perChild.maxDurationMs < 1)
+      )
         throw new Problem(422, "CHILD_BUDGET_EXCEEDED");
       const ids: string[] = [];
       for (const [index, spec] of action.children.entries()) {
@@ -82,12 +85,25 @@ export class TaskGroups {
           `child:${task.id}:${step.id}:${index}`,
           task.conversation_id,
         );
-        const budget = Object.fromEntries(
-          Object.entries(perChild).map(([key, value]) => [
-            key,
-            Math.min(value, child.budget[key as keyof typeof perChild]),
-          ]),
-        );
+        const budget = task.budget.unbounded
+          ? child.budget
+          : {
+              ...child.budget,
+              ...Object.fromEntries(
+                Object.entries(perChild)
+                  .filter(([key]) => key !== "unbounded")
+                  .map(([key, value]) => [
+                    key,
+                    child.budget.unbounded && key !== "maxAttempts"
+                      ? value
+                      : Math.min(
+                          Number(value),
+                          Number(child.budget[key as keyof typeof perChild]),
+                        ),
+                  ]),
+              ),
+              unbounded: false,
+            };
         await client.query(
           "UPDATE tasks SET parent_id=$2,execution_scope=$3,budget=$4 WHERE id=$1",
           [child.id, task.id, principal.capabilities, JSON.stringify(budget)],

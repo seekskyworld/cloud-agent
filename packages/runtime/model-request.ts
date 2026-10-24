@@ -82,6 +82,13 @@ export function prepareModelRequest(
 }
 function validateRequestOptions(request: ModelRequest, engine: ModelEngine) {
   if (
+    request.maxToolCalls !== undefined &&
+    (!Number.isInteger(request.maxToolCalls) ||
+      request.maxToolCalls < 1 ||
+      request.maxToolCalls > 100)
+  )
+    throw new Problem(422, "MODEL_TOOL_BATCH_LIMIT_INVALID");
+  if (
     request.inputTokenBudget !== undefined &&
     (!Number.isInteger(request.inputTokenBudget) ||
       request.inputTokenBudget < 1 ||
@@ -152,6 +159,21 @@ export function validateModelTurn(
   request: ModelRequest,
   turn: ModelTurn,
 ): ModelTurn {
+  if (
+    request.maxToolCalls !== undefined &&
+    turn.calls.length > request.maxToolCalls
+  )
+    return {
+      ...turn,
+      calls: [],
+      text: `Tool batch exceeded the per-response capacity of ${request.maxToolCalls}; no calls from this response were dispatched. Propose a smaller operation.`,
+      data: {
+        incomplete: true,
+        reason: "tool_batch_limit",
+        discardedToolCalls: true,
+        originalData: turn.data ?? null,
+      },
+    };
   if (request.outputSchema === undefined || turn.calls.length) return turn;
   try {
     const data: Json = JSON.parse(turn.text);
@@ -170,12 +192,14 @@ export async function invokeModel(
   tools: Tool[],
   signal: AbortSignal,
   context: import("../contracts/model-lifecycle.js").ModelCallContext,
-  onText?: (text: string) => void,
+  onText?: (text: string) => unknown | Promise<unknown>,
 ): Promise<ModelTurn> {
   if (!request.stream) return engine.next(request, tools, signal, context);
   if (!engine.stream) throw new Problem(422, "MODEL_STREAM_UNSUPPORTED");
   let result: ModelTurn | undefined,
-    bytes = 0;
+    bytes = 0,
+    pendingText = "",
+    lastEmit = 0;
   for await (const chunk of engine.stream(request, tools, signal, context)) {
     signal.throwIfAborted();
     if (result) throw new Problem(422, "MODEL_STREAM_INVALID");
@@ -184,9 +208,17 @@ export async function invokeModel(
       if (chunk.text.length) context.progress?.();
       bytes += Buffer.byteLength(chunk.text);
       if (bytes > 1_000_000) throw new Problem(422, "MODEL_STREAM_TOO_LARGE");
-      onText?.(chunk.text);
+      pendingText += chunk.text;
+      const now = Date.now();
+      if (onText && now - lastEmit >= 120) {
+        const text = pendingText;
+        pendingText = "";
+        lastEmit = now;
+        await onText(text);
+      }
     }
   }
+  if (pendingText) await onText?.(pendingText);
   if (!result) throw new Problem(422, "MODEL_STREAM_INCOMPLETE");
   return result;
 }

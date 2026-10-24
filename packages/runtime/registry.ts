@@ -4,11 +4,36 @@ import {
   nextAction,
   type ExecutionHost,
 } from "../execution-host/index.js";
-import type { Data, Step } from "../contracts/index.js";
+import type { Data, Step, Tool } from "../contracts/index.js";
 /** 注册表冻结版本与配置摘要；装配层负责选择具体模块。 */
 import { defaultBudget, Problem, type Module } from "../contracts/index.js";
 import { fingerprint } from "../contracts/fingerprint.js";
 import { z } from "zod";
+function validateReconciliationPolling(tool: Tool) {
+  if (
+    tool.deferred &&
+    (tool.effect !== "reconcilable_write" ||
+      !tool.reconcile ||
+      !Number.isInteger(tool.deferred.maxConcurrent) ||
+      tool.deferred.maxConcurrent < 1 ||
+      tool.deferred.maxConcurrent > 64)
+  )
+    throw new Error(`Invalid deferred tool: ${tool.name}`);
+  if (tool.continueOnUnknown && tool.effect !== "reconcilable_write")
+    throw new Error(`Invalid unknown continuation: ${tool.name}`);
+  if (
+    tool.reconciliationPolling &&
+    (tool.effect !== "reconcilable_write" ||
+      !tool.reconcile ||
+      !Number.isInteger(tool.reconciliationPolling.intervalMs) ||
+      tool.reconciliationPolling.intervalMs < 1000 ||
+      tool.reconciliationPolling.intervalMs > 3600000 ||
+      !Number.isInteger(tool.reconciliationPolling.maxAttempts) ||
+      tool.reconciliationPolling.maxAttempts < 1 ||
+      tool.reconciliationPolling.maxAttempts > 100)
+  )
+    throw new Error(`Invalid reconciliation polling: ${tool.name}`);
+}
 export class Registry {
   constructor(
     private runtimeProfile = "default",
@@ -42,6 +67,7 @@ export class Registry {
       if (names.has(tool.name)) throw new Error(`Duplicate tool ${tool.name}`);
       if (tool.effect === "reconcilable_write" && !tool.reconcile)
         throw new Error(`Missing reconciliation: ${tool.name}`);
+      validateReconciliationPolling(tool);
       names.add(tool.name);
     }
     this.modules.set(key, isolateModule(module, this.executionHost));
@@ -53,8 +79,43 @@ export class Registry {
   }
   get(id: string, version?: string): Module {
     const found = this.modules.get(`${id}@${version ?? this.defaults.get(id)}`);
-    if (!found) throw new Problem(422, "MODULE_NOT_AVAILABLE");
-    return found;
+    if (found) return found;
+    const retired = version ? this.retired(id, version) : undefined;
+    if (!retired) throw new Problem(422, "MODULE_NOT_AVAILABLE");
+    return retired;
+  }
+  private retiredCache = new Map<string, Module>();
+  /** 当前版本声明 previousVersions=read-only 时，为未注册的旧版本生成只读模块（读取任务、不再执行）。 */
+  private retired(id: string, version: string): Module | undefined {
+    const key = `${id}@${version}`;
+    const cached = this.retiredCache.get(key);
+    if (cached) return cached;
+    const current = this.modules.get(`${id}@${this.defaults.get(id)}`);
+    if (
+      !current ||
+      current.compatibility?.previousVersions !== "read-only" ||
+      !/^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(version)
+    )
+      return undefined;
+    const module: Module = {
+      id,
+      version,
+      title: current.title,
+      description: current.description,
+      capability: current.capability,
+      input: current.input,
+      example: current.example,
+      tools: [],
+      runtime: { model: false },
+      ...(current.authorizeRead
+        ? { authorizeRead: current.authorizeRead }
+        : {}),
+      next() {
+        throw new Problem(409, "MODULE_VERSION_RETIRED");
+      },
+    };
+    this.retiredCache.set(key, module);
+    return module;
   }
   list(): Module[] {
     return [...this.modules.values()];
@@ -150,6 +211,11 @@ export class Registry {
         version: t.version,
         effect: t.effect,
         approval: t.approval ?? false,
+        ...(t.deferred ? { deferred: t.deferred } : {}),
+        ...(t.continueOnUnknown ? { continueOnUnknown: true } : {}),
+        ...(t.reconciliationPolling
+          ? { reconciliationPolling: t.reconciliationPolling }
+          : {}),
         ...(t.approvalMessage ? { approvalMessage: true } : {}),
         capability: t.capability,
         input: z.toJSONSchema(t.input),

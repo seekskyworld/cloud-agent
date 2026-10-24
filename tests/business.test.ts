@@ -29,6 +29,7 @@ import {
 import { Connections } from "../packages/connections/index.js";
 import { ModelProfiles } from "../packages/runtime/models.js";
 import { Registry } from "../packages/runtime/registry.js";
+import { Problem } from "../packages/contracts/index.js";
 import { DemoEngine } from "../adapters/engine-pi/index.js";
 import { createContainer } from "../apps/container.js";
 import { diagnose } from "../apps/doctor.js";
@@ -454,3 +455,144 @@ async function verifyGeneratedPackage(directory: string) {
     await base.close();
   }
 }
+
+test("业务文件路由：GET 支持 Range 与内联，PUT 收原始字节且要求请求键与权限", async () => {
+  const saved = new Map<string, Uint8Array>();
+  const filesPackage = defineBusinessPackage({
+    ...bare,
+    id: "filebox",
+    permissions: ["filebox:run"],
+    create: () => ({
+      modules: [],
+      files: [
+        {
+          id: "item",
+          method: "GET",
+          capability: "filebox:run",
+          input: z.object({ name: z.string().min(1) }).strict(),
+          async handle(input) {
+            const { name } = input as { name: string };
+            const data = saved.get(name);
+            if (!data) throw new Problem(404, "NOT_FOUND");
+            return { name, mediaType: "video/mp4", data };
+          },
+        },
+        {
+          id: "upload",
+          method: "PUT",
+          capability: "filebox:run",
+          input: z.object({ name: z.string().min(1) }).strict(),
+          output: z.object({ bytes: z.number() }),
+          maxBytes: 1000,
+          async handle(input, context) {
+            saved.set((input as { name: string }).name, context.body!);
+            return { bytes: context.body!.length };
+          },
+        },
+      ],
+    }),
+  });
+  const base = await setup();
+  const container = await createContainer(
+    {
+      ...base.config,
+      businesses: loadBusinessDeployments(
+        '[{"id":"filebox","config":{},"bindings":{}}]',
+      ),
+    },
+    { businesses: [filesPackage] },
+  );
+  const app = await createApp(container);
+  const auth = { authorization: `Bearer ${token}` };
+  try {
+    const upload = (headers: Record<string, string>, body = "0123456789") =>
+      app.inject({
+        method: "PUT",
+        url: "/v1/business/filebox/files/upload?name=clip",
+        headers: { "content-type": "application/octet-stream", ...headers },
+        payload: Buffer.from(body),
+      });
+    // 没有 filebox:run 权限时拒绝。
+    assert.equal(
+      (await upload({ ...auth, "idempotency-key": "upload-1" })).statusCode,
+      403,
+    );
+    await container.db.pool.query(
+      "UPDATE principals SET capabilities=array_append(capabilities,'filebox:run') WHERE workspace_id=$1",
+      [principal.workspace_id],
+    );
+    assert.equal((await upload(auth)).statusCode, 400);
+    const ok = await upload({ ...auth, "idempotency-key": "upload-1" });
+    assert.equal(ok.statusCode, 200, ok.body);
+    assert.deepEqual(ok.json(), { bytes: 10 });
+    assert.equal(
+      (
+        await upload(
+          { ...auth, "idempotency-key": "upload-2" },
+          "x".repeat(2000),
+        )
+      ).statusCode,
+      413,
+    );
+    const ranged = await app.inject({
+      url: "/v1/business/filebox/files/item?name=clip&inline=true",
+      headers: { ...auth, range: "bytes=2-5" },
+    });
+    assert.equal(ranged.statusCode, 206);
+    assert.equal(ranged.body, "2345");
+    assert.equal(ranged.headers["content-type"], "video/mp4");
+    assert.match(String(ranged.headers["content-disposition"]), /^inline;/);
+    assert.equal(
+      (
+        await app.inject({
+          url: "/v1/business/filebox/files/item?name=missing",
+          headers: auth,
+        })
+      ).statusCode,
+      404,
+    );
+    const listing = (
+      await app.inject({ url: "/v1/business", headers: auth })
+    ).json() as { id: string; files: { id: string }[] }[];
+    assert.deepEqual(
+      listing.find((entry) => entry.id === "filebox")!.files.map((f) => f.id),
+      ["item", "upload"],
+    );
+  } finally {
+    await app.close();
+    await container.close();
+    await base.close();
+  }
+});
+
+test("模块声明旧版本只读后，未注册的旧版本可读取但不能继续执行", () => {
+  const registry = new Registry();
+  const current = {
+    id: "longlived",
+    version: "2.0.0",
+    title: "长期业务",
+    description: "fixture",
+    capability: "report:run",
+    input: z.object({}),
+    example: {},
+    tools: [],
+    runtime: { model: false },
+    compatibility: { previousVersions: "read-only" as const },
+    next: () => ({ kind: "complete" as const, result: null }),
+  };
+  registry.register(current);
+  const old = registry.get("longlived", "1.4.0");
+  assert.equal(old.version, "1.4.0");
+  assert.equal(old.capability, "report:run");
+  assert.deepEqual(old.tools, []);
+  assert.throws(() => old.next({}, []), { code: "MODULE_VERSION_RETIRED" });
+  assert.equal(registry.get("longlived", "1.4.0"), old);
+  assert.throws(() => registry.get("longlived", "not-a-version"), {
+    code: "MODULE_NOT_AVAILABLE",
+  });
+  const strict = new Registry();
+  strict.register({ ...current, compatibility: undefined });
+  assert.throws(() => strict.get("longlived", "1.4.0"), {
+    code: "MODULE_NOT_AVAILABLE",
+  });
+});

@@ -276,7 +276,7 @@ test("HTTP 非 JSON 限流响应仍分类并保留 Retry-After，不泄露远端
   }
 });
 
-test("真实 Pi HTTP 401 不重试、429 传递 Retry-After，错误正文不进入协议", async () => {
+test("真实 Pi HTTP 401 不重试、429 保留等待、413 明确未受理且错误正文不泄露", async () => {
   const { PiEngine } = await import("../adapters/engine-pi/index.js");
   let status = 401;
   const server = createServer((_req, res) => {
@@ -329,6 +329,23 @@ test("真实 Pi HTTP 401 不重试、429 传递 Retry-After，错误正文不进
         e instanceof ExecutionFailure &&
         e.category === "rate_limited" &&
         e.options.retryAfterMs === 90000,
+    );
+    status = 413;
+    await assert.rejects(
+      engine.next(
+        {
+          instructions: "x",
+          messages: [{ role: "user", text: "x" }],
+          tools: [],
+        },
+        [],
+        AbortSignal.timeout(3000),
+      ),
+      (e: unknown) =>
+        e instanceof ExecutionFailure &&
+        e.category === "permanent" &&
+        e.options.notAccepted === true &&
+        !e.message.includes("secret"),
     );
   } finally {
     await new Promise<void>((resolve, reject) =>

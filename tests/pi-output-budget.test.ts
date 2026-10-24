@@ -189,6 +189,61 @@ test("configured model ceiling is validated and participates in the engine finge
   );
 });
 
+test("unknown gateway context capacity does not silently clamp multi-image output to one token", async (t) => {
+  const api = Fastify({ forceCloseConnections: true });
+  t.after(() => api.close());
+  let requestedTokens = 0;
+  api.post("/responses", async (req, reply) => {
+    requestedTokens = (req.body as { max_output_tokens: number })
+      .max_output_tokens;
+    return reply.type("text/event-stream").send(responseStream(300));
+  });
+  const baseUrl = await api.listen({ host: "127.0.0.1", port: 0 });
+  const engine = new PiEngine({
+    protocol: "responses",
+    baseUrl,
+    apiKey: "fixture",
+    model: "gateway",
+    inputPrice: 1,
+    outputPrice: 4,
+  });
+  await engine.next(
+    {
+      instructions: "Review images",
+      messages: [
+        {
+          role: "user",
+          text: "Visual evidence",
+          content: Array.from({ length: 30 }, () => ({
+            type: "image" as const,
+            mediaType: "image/png",
+            data: "aGVsbG8=",
+          })),
+        },
+      ],
+      tools: [],
+      maxOutputTokens: 8192,
+    },
+    [],
+    AbortSignal.timeout(5000),
+  );
+  assert.equal(requestedTokens, 8192);
+  assert.notEqual(
+    engine.id,
+    new PiEngine({
+      protocol: "responses",
+      baseUrl,
+      apiKey: "fixture",
+      model: "gateway",
+      inputPrice: 1,
+      outputPrice: 4,
+      contextWindow: 200000,
+    }).id,
+  );
+  for (const contextWindow of [0, 4095, 2000001, 10000.5])
+    assert.equal(ModelOptions.safeParse({ contextWindow }).success, false);
+});
+
 test("Responses tool call with malformed final arguments is never executed with empty arguments", async (t) => {
   const api = Fastify({ forceCloseConnections: true });
   t.after(() => api.close());
@@ -272,8 +327,12 @@ test("Responses tool call with malformed final arguments is never executed with 
     engine,
     [tool],
   );
-  await assert.rejects(
-    engine.next(request, [tool], AbortSignal.timeout(5000)),
-    { code: "MODEL_TOOL_ARGUMENTS_INVALID" },
+  // 下游引擎把它作为未执行的可纠正回合交给模型，不执行空参数。
+  const turn = await engine.next(request, [tool], AbortSignal.timeout(5000));
+  assert.deepEqual(turn.calls, []);
+  assert.equal(
+    (turn.data as { reason?: string } | undefined)?.reason,
+    "tool_arguments_invalid",
   );
+  assert.match(turn.text, /giftId/);
 });

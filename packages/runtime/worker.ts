@@ -155,12 +155,23 @@ export class Worker {
         (deadline) => module.validateContext!(steps, principal, deadline),
         signal,
       );
-    const pending = steps.find((step) => step.status !== "succeeded");
-    const action = pending
+    const pending = steps.find((step) => {
+      if (step.status === "succeeded" || step.status === "deferred")
+        return false;
+      const name = step.request.kind === "tool" ? step.request.name : undefined;
+      return !(
+        step.status === "unknown" &&
+        module.tools.find((t) => t.name === name)?.continueOnUnknown
+      );
+    });
+    let action = pending
       ? pending.request
       : await this.registry.next(module, task.input, steps, signal);
     if (action.kind === "model" && module.runtime?.model === false)
       throw new Problem(422, "MODEL_DEPENDENCY_UNDECLARED");
+    const deferred = steps.filter((step) => step.status === "deferred");
+    if (deferred.length && action.kind === "complete")
+      action = deferred[0]!.request;
     if (action.kind === "complete")
       return this.complete(task, module, action, principal, steps, signal);
     if (pending && (await this.recoverCheckpoint(task, pending, action)))
@@ -204,8 +215,19 @@ export class Worker {
         ? module.tools.find((tool) => tool.name === action.name)
         : undefined;
     if (action.kind === "tool" && !tool)
-      throw new Problem(403, "TOOL_NOT_ALLOWED");
+      throw new Problem(
+        403,
+        "MODEL_TOOL_NOT_ALLOWED",
+        `模型请求了当前阶段不可用的工具：${action.name}`,
+      );
     const step = await this.store.prepare(task, action, tool);
+    if (step.status === "deferred") {
+      const resumeAt = Number(
+        (step.output as Record<string, Json> | null)?.resumeAt,
+      );
+      if (resumeAt > Date.now())
+        return this.store.postpone(task, resumeAt - Date.now());
+    }
     if (action.kind === "children") {
       if (!this.groups) throw new Problem(422, "TASK_COMPOSITION_UNAVAILABLE");
       return this.groups.spawn(task, step, action, principal);
@@ -239,6 +261,11 @@ export class Worker {
             invocationId: step.id,
             idempotencyKey: step.id,
             signal,
+            ...(typeof task.input.projectId === "string"
+              ? { projectId: task.input.projectId }
+              : {}),
+          } as import("../contracts/index.js").ExecutionContext & {
+            projectId?: string;
           },
           step,
         ),
@@ -339,6 +366,8 @@ export class Worker {
             signal: deadline.signal,
             deadlineAt: deadline.deadlineAt,
             begin: () => this.store.begin(task, step),
+            onText: (text) =>
+              this.store.modelProgress?.(task, step, text) ?? Promise.resolve(),
           }),
       );
       chargedCost =
@@ -378,7 +407,9 @@ export class Worker {
     action: Extract<Action, { kind: "model" }>,
     parent: AbortSignal,
   ) {
-    const remaining = task.budget.maxDurationMs - Number(task.execution_ms);
+    const remaining = task.budget.unbounded
+      ? Infinity
+      : task.budget.maxDurationMs - Number(task.execution_ms);
     const timeoutMs = Math.max(
       1,
       Math.min(action.request.timeoutMs ?? 60_000, remaining),

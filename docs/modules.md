@@ -40,7 +40,7 @@ pnpm check
 
 ## 模型适配
 
-[Pi 引擎](../adapters/engine-pi/index.ts) 默认使用 OpenAI-compatible Chat Completions，可通过 `protocol:"responses"` 选择 Responses；协议及供应商边界见 [模型生命周期](model-lifecycle.md)。未指定输出额度时每轮请求 2048 token；可配置的模型准入上限见该指南。序列化后的请求最多 80,000 字符；返回文本、工具建议与用量，不执行内部工具循环、不保存隐藏推理。启用方法见 [运维配置](operations.md#配置)。
+[Pi 引擎](../adapters/engine-pi/index.ts) 默认使用 OpenAI-compatible Chat Completions，也支持 `protocol:"responses"` 和 `protocol:"anthropic"`（Anthropic Messages）；协议及供应商边界见 [模型生命周期](model-lifecycle.md)。未指定输出额度时每轮请求 2048 token；可配置的模型准入上限见该指南。序列化后的请求最多 80,000 字符；返回文本、工具建议与用量，不执行内部工具循环、不保存隐藏推理。启用方法见 [运维配置](operations.md#配置)。
 
 自定义引擎实现 `ModelEngine.id` 和 `next(request, tools, signal): Promise<ModelTurn>`，返回非负成本，不能绕过平台执行工具。多轮流程由模块读取已保存结果、校验建议工具及参数、返回稳定 `tool` 动作，再将输出和原 call ID 放进下一轮消息。
 
@@ -89,6 +89,8 @@ const container = await createContainer(config, {
 适配器可从 `cloud-agent/sdk` 导入 `ExecutionFailure`，使用 permanent/authorization/transient/rate_limited/unknown 分类与安全大写 code。只读工具和模型遇到永久/权限错误终止，临时故障按预算退避；429 可带 `retryAfterMs`，平台不把供应商等待缩短到一分钟。只读执行中，`Problem` 的 408/425/504 按临时错误处理，429 按限流处理；其余 4xx 为权限或永久错误，不自动重试。
 
 写入异常默认保持 unknown；只有适配器确有证据证明未被接收时才用 `{notAccepted:true}` 允许按分类处理，不能仅凭一般 HTTP 5xx 或超时断言未执行。`DomainHttp.json()` 分类状态、保留 Retry-After 并脱敏；`request()` 仍提供兼容的状态/JSON。人工核实流程见 [API](api.md#人工核实未知写入)。
+
+已受理异步工具可声明 `deferred: { maxConcurrent }` 并返回 `{ kind: "pending", reconciliationRef, retryAfterMs }`。必须是可对账写入且实现 `reconcile`；先持久化原供应商号，再交回调度，随后收取仅用原键。业务纯编排按声明限制同类在途数量，已持久的 pending 轮询及崩溃恢复不消耗新的提交尝试，但每次收取仍计调用和时间预算。`continueOnUnknown` 只适用于可对账写入，保留未知账本而允许模块继续无依赖动作。未显式声明的工具保留原来的暂停行为。
 
 ## 页面扩展
 

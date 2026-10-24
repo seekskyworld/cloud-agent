@@ -28,6 +28,8 @@ export {
 export { definePort } from "../business/application.js";
 export type {
   BusinessRoute,
+  BusinessFile,
+  BusinessFileRoute,
   BusinessPublicRead,
   BusinessPage,
   BusinessJob,

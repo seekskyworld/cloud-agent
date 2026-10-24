@@ -38,11 +38,26 @@ export function openapi(
         schema: { type: "string", minLength: 1, maxLength: 180 },
       });
     if (id === "tasks")
-      parameters.push({
-        in: "query",
-        name: "offset",
-        schema: { type: "integer", minimum: 0, maximum: 1000000, default: 0 },
-      });
+      parameters.push(
+        {
+          in: "query",
+          name: "offset",
+          schema: { type: "integer", minimum: 0, maximum: 1000000, default: 0 },
+        },
+        {
+          in: "query",
+          name: "modules",
+          schema: { type: "string", description: "逗号分隔的模块 ID" },
+        },
+        {
+          in: "query",
+          name: "projectId",
+          schema: {
+            type: "string",
+            description: "按任务输入里的 projectId 过滤",
+          },
+        },
+      );
     if (id === "events")
       parameters.push(
         {
@@ -124,6 +139,13 @@ export function openapi(
           name: "id",
           required: true,
           schema: { type: "string", format: "uuid" },
+        },
+        {
+          in: "query",
+          name: "inline",
+          required: false,
+          schema: { type: "boolean", default: false },
+          description: "在浏览器内预览媒体；默认作为附件下载。",
         },
       ],
       responses: {

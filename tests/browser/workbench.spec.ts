@@ -253,3 +253,24 @@ test("业务声明页面缺少前端注册时显示错误而不是隐藏导航",
     fullPage: true,
   });
 });
+
+test("离开任务页后停止后台任务列表轮询，避免占用对话限流额度", async ({
+  page,
+}) => {
+  await openWorkspace(page);
+  await page
+    .locator("aside")
+    .getByRole("button", { name: "运行治理", exact: true })
+    .click();
+  await expect(page.getByRole("heading", { name: "部署差异" })).toBeVisible();
+  let hiddenTaskReads = 0;
+  page.on("request", (request) => {
+    if (
+      new URL(request.url()).pathname === "/v1/tasks" &&
+      request.method() === "GET"
+    )
+      hiddenTaskReads++;
+  });
+  await page.waitForTimeout(4000);
+  expect(hiddenTaskReads).toBe(0);
+});

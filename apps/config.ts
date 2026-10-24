@@ -37,9 +37,23 @@ const Schema = z.object({
   LLM_MODEL: z.string().default("gpt-4.1-mini"),
   LLM_INPUT_PRICE: z.coerce.number().positive().default(1),
   LLM_OUTPUT_PRICE: z.coerce.number().positive().default(4),
-  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(32).default(2),
+  WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(64).default(2),
+  /** 数据库连接池上限（每个进程）；Worker 槽位调高时一并调高。 */
+  DATABASE_POOL_MAX: z.coerce.number().int().min(5).max(200).default(20),
+  /** 接口按来源每分钟请求上限（本机部署时，同机的多个代理共用 127.0.0.1 这一个来源）。 */
+  API_RATE_LIMIT_PER_MINUTE: z.coerce
+    .number()
+    .int()
+    .min(10)
+    .max(100000)
+    .default(120),
 });
-export type Config = Omit<z.infer<typeof Schema>, "EXAMPLES_ENABLED"> & {
+export type Config = Omit<
+  z.infer<typeof Schema>,
+  "EXAMPLES_ENABLED" | "DATABASE_POOL_MAX" | "API_RATE_LIMIT_PER_MINUTE"
+> & {
+  DATABASE_POOL_MAX?: number;
+  API_RATE_LIMIT_PER_MINUTE?: number;
   modelOptions?: z.infer<typeof ModelOptions>;
   workerPool?: string;
   workerLabels?: string[];

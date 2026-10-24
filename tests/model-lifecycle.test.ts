@@ -10,6 +10,7 @@ import { DataRetention } from "../packages/persistence/retention.js";
 import { ModelProfiles } from "../packages/runtime/models.js";
 import { modelDeadline } from "../packages/runtime/model-deadline.js";
 import { prepareModelRequest } from "../packages/runtime/model-request.js";
+import { ExecutionFailure } from "../packages/contracts/failure.js";
 import type {
   ModelEngine,
   ModelRequest,
@@ -441,4 +442,47 @@ test("适配器部分用量保留预留，迟到完整用量原子结算且取�
   assert.equal((await costs.pending("workspace-a")).length, 0);
   assert.equal((await c.tasks.get(principal, task.id)).status, "cancelled");
   assert.equal((await c.execution.steps(task.id))[0]!.output, null);
+});
+
+test("明确拒绝结束任务，保留部分费用，不再调度或执行工具", async (t) => {
+  const c = await setup();
+  t.after(() => c.close());
+  c.registry.register(moduleFor());
+  let calls = 0;
+  const engine: ModelEngine = {
+    id: "demo:echo-v1",
+    lifecycle: { resourceId: "fixture-refusal" },
+    next: async (_request, _tools, _signal, context) => {
+      calls++;
+      await context?.report?.({
+        state: "completed",
+        usage: { costUsd: 0.02, estimated: true, complete: false },
+      });
+      throw new ExecutionFailure("permanent", "MODEL_PROVIDER_REFUSAL");
+    },
+  };
+  const task = await c.service.create(
+    principal,
+    "model-lifecycle",
+    {},
+    "refusal",
+  );
+  const w = worker(c, engine);
+  await w.tick();
+  await w.tick();
+  assert.equal(calls, 1);
+  assert.equal((await c.tasks.get(principal, task.id)).status, "failed");
+  const steps = await c.execution.steps(task.id);
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0]!.status, "failed");
+  assert.deepEqual(steps[0]!.output, {
+    kind: "failed",
+    category: "permanent",
+    code: "MODEL_PROVIDER_REFUSAL",
+    message: "MODEL_PROVIDER_REFUSAL",
+  });
+  const ledger = await row(c);
+  assert.equal(ledger.state, "completed");
+  assert.equal(Number(ledger.cost_usd), 0.02);
+  assert.equal(ledger.usage_complete, false);
 });

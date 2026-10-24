@@ -1,3 +1,4 @@
+import { z } from "zod";
 /** 本地 HTTP 网关验证真实 SDK 载荷、取消控制、状态丢失和流心跳；不调用外部模型。 */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -11,6 +12,8 @@ import {
 import { modelDeadline } from "../packages/runtime/model-deadline.js";
 import { principal } from "./helpers.js";
 import type { ModelInvocation } from "../packages/contracts/model-lifecycle.js";
+import { Connections } from "../packages/connections/index.js";
+import { modelProviders } from "../apps/models.js";
 const request = {
   instructions: "fixture",
   messages: [{ role: "user" as const, text: "fixture" }],
@@ -159,4 +162,250 @@ test("Pi 心跳流不能延长首包时限，拒绝供应商输出超限且没�
     code: "MODEL_OUTPUT_LIMIT",
   });
   assert.equal(calls, 2);
+});
+
+test("Pi 模型 profile 透传流式响应", async (t) => {
+  const app = Fastify();
+  const actor = {
+    ...principal,
+    capabilities: [...principal.capabilities, "text-assistant:run"],
+  };
+  app.post("/chat/completions", async (_req, reply) =>
+    reply.type("text/event-stream").send(terminal()),
+  );
+  const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  const connections = new Connections(
+    [
+      {
+        id: "fixture",
+        endpoint: baseUrl,
+        credential: "fixture",
+        grants: [
+          {
+            workspace: actor.workspace_id,
+            principals: [actor.id],
+            capability: "text-assistant:run",
+          },
+        ],
+      },
+    ],
+    async () => ({ kind: "api-key", apiKey: "fixture" }),
+    async () => actor,
+  );
+  const engine = await modelProviders.create(
+    "pi",
+    {
+      provider: "pi",
+      id: "fixture-profile",
+      connection: "fixture",
+      model: "fixture",
+      inputPrice: 1,
+      outputPrice: 1,
+      protocol: "completions",
+      reasoningLevels: ["none"],
+    },
+    connections,
+  );
+  assert.ok(engine.stream, "model profiles must expose stream");
+  let text = "";
+  for await (const chunk of engine.stream!(
+    { ...request, stream: true },
+    [],
+    AbortSignal.timeout(1000),
+    { principal: actor, taskId: randomUUID() },
+  ))
+    if (chunk.type === "text") text += chunk.text;
+  assert.equal(text, "ok");
+});
+
+test("Pi 将视频内容块按时间顺序展开为视觉帧", async (t) => {
+  const app = Fastify();
+  let body: unknown;
+  app.post("/chat/completions", async (request, reply) => {
+    body = request.body;
+    return reply.type("text/event-stream").send(terminal());
+  });
+  const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  const engine = new PiEngine({
+    baseUrl,
+    apiKey: "fixture",
+    model: "fixture",
+    inputPrice: 1,
+    outputPrice: 1,
+    video: true,
+  });
+  const observedTurn = await engine.next(
+    {
+      ...request,
+      messages: [
+        {
+          role: "user",
+          text: "读取视频",
+          content: [
+            {
+              type: "video",
+              mediaType: "video/x-frame-sequence",
+              durationSeconds: 2,
+              frames: [
+                {
+                  mediaType: "image/jpeg",
+                  data: Buffer.from("frame-0".repeat(15000)).toString("base64"),
+                  timestampSeconds: 0,
+                },
+                {
+                  mediaType: "image/jpeg",
+                  data: Buffer.from("frame-1").toString("base64"),
+                  timestampSeconds: 1,
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    },
+    [],
+    AbortSignal.timeout(1000),
+  );
+  const receipt = (
+    observedTurn.data as {
+      inputReceipt: {
+        transmittedImageCount: number;
+        httpAccepted: boolean;
+        omitted: unknown[];
+      };
+    }
+  ).inputReceipt;
+  assert.equal(receipt.transmittedImageCount, 2);
+  assert.equal(receipt.httpAccepted, true);
+  assert.equal(receipt.omitted.length, 0);
+  const payload = JSON.stringify(body);
+  assert.match(payload, /视频附件/);
+  assert.match(payload, /data:image\/jpeg;base64/);
+  assert.ok(
+    payload.indexOf(Buffer.from("frame-0".repeat(15000)).toString("base64")) <
+      payload.indexOf(Buffer.from("frame-1").toString("base64")),
+  );
+});
+
+test("Pi streaming counts real thinking and tool deltas as progress without exposing reasoning", async (t) => {
+  const app = Fastify();
+  const tool = {
+    name: "fixture",
+    version: "1",
+    description: "fixture",
+    input: z.object({ value: z.string() }),
+    output: z.string(),
+    capability: "fixture",
+    effect: "read" as const,
+    timeoutMs: 1000,
+    execute: async () => ({ kind: "succeeded" as const, output: "ok" }),
+  };
+  app.post("/v1/messages", async (_req, reply) => {
+    reply.hijack();
+    reply.raw.writeHead(200, { "content-type": "text/event-stream" });
+    const send = (event: Record<string, unknown>) =>
+      reply.raw.write(
+        `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`,
+      );
+    send({
+      type: "message_start",
+      message: {
+        id: "fixture",
+        type: "message",
+        role: "assistant",
+        content: [],
+        model: "fixture",
+        stop_reason: null,
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 0 },
+      },
+    });
+    send({
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "thinking", thinking: "" },
+    });
+    for (let i = 0; i < 6; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+      send({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "private test reasoning " },
+      });
+    }
+    send({ type: "content_block_stop", index: 0 });
+    send({
+      type: "content_block_start",
+      index: 1,
+      content_block: {
+        type: "tool_use",
+        id: "call",
+        name: "fixture",
+        input: {},
+      },
+    });
+    send({
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "input_json_delta", partial_json: '{"value":"ok"}' },
+    });
+    send({ type: "content_block_stop", index: 1 });
+    send({
+      type: "message_delta",
+      delta: { stop_reason: "tool_use", stop_sequence: null },
+      usage: { output_tokens: 16 },
+    });
+    send({ type: "message_stop" });
+    reply.raw.end();
+  });
+  const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  const engine = new PiEngine({
+    protocol: "anthropic",
+    baseUrl,
+    apiKey: "fixture",
+    model: "fixture",
+    inputPrice: 1,
+    outputPrice: 1,
+  });
+  const deadline = modelDeadline(
+    new AbortController().signal,
+    Date.now() + 3000,
+    150,
+    150,
+  );
+  t.after(() => deadline.close());
+  deadline.start();
+  const chunks = [];
+  let progress = 0;
+  for await (const chunk of engine.stream(
+    { ...request, stream: true, tools: [tool.name] },
+    [tool],
+    deadline.signal,
+    {
+      principal,
+      taskId: randomUUID(),
+      progress: () => {
+        progress++;
+        deadline.progress();
+      },
+    },
+  ))
+    chunks.push(chunk);
+  assert.ok(progress >= 7);
+  assert.equal(deadline.failure(), undefined);
+  assert.equal(
+    chunks.some((c) => c.type === "text"),
+    false,
+  );
+  assert.equal(
+    JSON.stringify(chunks).includes("private test reasoning"),
+    false,
+  );
+  const last = chunks.at(-1)!;
+  assert.equal(last.type, "result");
+  if (last.type === "result")
+    assert.deepEqual(last.value.calls[0]?.arguments, { value: "ok" });
 });

@@ -26,6 +26,8 @@ export type Principal = {
   role: Role;
 };
 export type Budget = {
+  /** Trusted module opts out of task totals; per-call timeouts, retries and workspace policies still apply. */
+  unbounded?: boolean;
   maxSteps: number;
   maxModelCalls: number;
   maxToolCalls: number;
@@ -85,6 +87,7 @@ export type ExecutionContext = {
   signal: AbortSignal;
 };
 export type Outcome =
+  | { kind: "pending"; reconciliationRef: string; retryAfterMs: number }
   | { kind: "succeeded"; output: Json; receipt?: string }
   | {
       kind: "rejected" | "failed";
@@ -109,6 +112,12 @@ export type Tool = {
   effect: "read" | "idempotent_write" | "reconcilable_write" | "unsafe_write";
   timeoutMs: number;
   approval?: boolean;
+  /** 仅重新查询未知写入，不重新提交；达到次数上限后等待外部对账。 */
+  reconciliationPolling?: { intervalMs: number; maxAttempts: number };
+  /** 已受理异步写入可交回调度器；只按原键查询，不消耗重试次数。 */
+  deferred?: { maxConcurrent: number };
+  /** 未知结果保留账本并作为未知观察交给模块；不自动重新执行。 */
+  continueOnUnknown?: boolean;
   /** 纯函数：呈现已绑定参数；更改语义须升级工具/模块版本。 */
   approvalMessage?(input: Data): string;
   execute(input: Data, context: ExecutionContext): Promise<Outcome>;
@@ -129,8 +138,21 @@ export type ModelTurn = {
 export type ModelContent =
   | { type: "text"; text: string }
   | { type: "image"; mediaType: string; data: string }
+  | {
+      /** 视频附件以有序低分辨率帧序列传输；适配器可下沉到原生 video 输入。 */
+      type: "video";
+      mediaType: string;
+      frames: {
+        mediaType: string;
+        data: string;
+        timestampSeconds: number;
+      }[];
+      durationSeconds?: number;
+    }
   | { type: "file"; id: string; mediaType: string };
 export type ModelMessage = {
+  /** 仅保存在输入回执，不作为提示词发送的上下文省略审计。 */
+  contextOmissions?: Json[];
   content?: ModelContent[];
   role: "user" | "assistant" | "tool";
   text: string;
@@ -145,6 +167,8 @@ export type ModelRequest = {
   contexts?: import("./context.js").ContextReference[];
   outputSchema?: Json;
   maxOutputTokens?: number;
+  /** Maximum proposed tool calls per response; an oversized batch executes nothing. */
+  maxToolCalls?: number;
   inputTokenBudget?: number;
   /** 单次模型调用上限；必须服从任务剩余总预算。 */
   timeoutMs?: number;
@@ -201,6 +225,12 @@ export type Module = {
     acceptLegacyProfile?: boolean;
   };
   next(input: Data, steps: Step[]): Action;
+  /**
+   * 旧版本兼容。previousVersions="read-only"：未注册的其他版本（升级前创建的任务）仍可读取——
+   * 平台用当前版本生成只读模块（同样的输入、权限与读取校验，没有工具），继续执行会得到
+   * 409 MODULE_VERSION_RETIRED。不再需要逐个注册历史版本。
+   */
+  compatibility?: { previousVersions: "read-only" };
   validateContext?: (
     steps: Step[],
     principal: Principal,
@@ -227,7 +257,7 @@ export interface ModelEngine {
   >;
   capabilities?: {
     progress?: boolean;
-    modalities?: ("text" | "image" | "file")[];
+    modalities?: ("text" | "image" | "video" | "file")[];
     tools?: boolean;
     reasoning?: ReasoningLevel[];
     cache?: boolean;
@@ -283,3 +313,17 @@ export type {
   ModelControl,
   ModelLifecyclePolicy,
 } from "./model-lifecycle.js";
+
+/**
+ * 产物保存后的回调（业务包注册）：拿到任务输入与执行上下文，自行决定是否同步到自己的存储（例如项目目录）。
+ * 回调失败会让这次保存失败（调用方按正常错误处理），所以只做必要的同步。
+ */
+export type ArtifactStoredHook = (input: {
+  artifactUri: string;
+  task: { id: string; moduleId: string; input: Data };
+  context: ExecutionContext;
+  name: string;
+  mediaType: string;
+  data: Uint8Array;
+  signal: AbortSignal;
+}) => Promise<void>;

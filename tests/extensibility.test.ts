@@ -361,6 +361,15 @@ test("文件示例完整执行，下载复核权限/摘要/有效期，过期对
   const dir = await mkdtemp(join(tmpdir(), "cloud-artifacts-")),
     store = new LocalArtifacts(dir, "test");
   const files = new ArtifactFiles(c.db, c.service, store);
+  // 业务注册的产物回调拿到任务与文件（例如同步到业务自己的目录）。
+  const stored: { name: string; moduleId: string; uri: string }[] = [];
+  files.addStoredHook(async (input) => {
+    stored.push({
+      name: input.name,
+      moduleId: input.task.moduleId,
+      uri: input.artifactUri,
+    });
+  });
   c.files = files;
   c.stores.set(store.id, files);
   await examples(files);
@@ -385,6 +394,39 @@ test("文件示例完整执行，下载复核权限/摘要/有效期，过期对
       headers: { authorization: `Bearer ${token}` },
     };
     assert.equal((await app.inject(request)).statusCode, 200);
+    assert.deepEqual(
+      stored.map((entry) => [entry.moduleId, entry.uri]),
+      [["file-report", `/v1/files/${result.id}`]],
+    );
+    // Range：返回 206 与对应片段；越界 416；inline=true 时内联显示。
+    const partial = await app.inject({
+      ...request,
+      headers: { ...request.headers, range: "bytes=0-4" },
+    });
+    assert.equal(partial.statusCode, 206);
+    assert.equal(partial.body, "hello");
+    assert.equal(partial.headers["content-range"], "bytes 0-4/11");
+    const tail = await app.inject({
+      ...request,
+      headers: { ...request.headers, range: "bytes=-5" },
+    });
+    assert.equal(tail.body, "world");
+    assert.equal(
+      (
+        await app.inject({
+          ...request,
+          headers: { ...request.headers, range: "bytes=50-60" },
+        })
+      ).statusCode,
+      416,
+    );
+    assert.match(
+      String(
+        (await app.inject({ ...request, url: `${request.url}?inline=true` }))
+          .headers["content-disposition"],
+      ),
+      /^inline;/,
+    );
     assert.equal(
       (
         await app.inject({

@@ -56,7 +56,9 @@
 | 可按原请求键查询确定结果       | `reconcilable_write`：实现 `reconcile`，查到 `T-42` 就返回成功 | 查不到、处理中或查询超时不等于未执行，不能直接再次创建 |
 | 无幂等、无可靠查询             | `unsafe_write`：保留未知结果，等待人工核实                     | 普通 retry 会被拒绝，不能通过新建任务绕过去            |
 
-区分两个入口：**进程崩溃而任务仍为 running**，由租约到期接管触发恢复；**工具返回 unknown 或写入异常已被保存**，任务暂停在 `waiting_external`，不会自动轮询。后者通过工作台重试或 `POST /v1/tasks/:id/retry` 请求恢复，仍受审批、权限、配置及累计预算限制。可对账工具此时调用 `reconcile`；查询仍不确定，就再次暂停，不进行隐藏的重发。
+区分两个入口：**进程崩溃而任务仍为 running**，由租约到期接管触发恢复；**工具返回 unknown 或写入异常已被保存**，任务暂停在 `waiting_external`，不会自动轮询。默认情况下，后者通过工作台重试或 `POST /v1/tasks/:id/retry` 请求恢复，仍受审批、权限、配置及累计预算限制。可对账工具此时调用 `reconcile`；查询仍不确定，就再次暂停，不进行隐藏的重发。
+
+显式声明例外：`reconciliationPolling` 允许受限原请求查询；`deferred` 用于已经受理且保存原任务号的异步写入，返回 `pending` 后释放租约、按原键收取，不能重新创建请求。`continueOnUnknown` 将未知分支交给模块决定无依赖后续工作，账本仍保持 unknown。已结束任务的隔离分支可以通过原对账接口补回执，但不会重开任务；关闭未知分支不撤销远端动作。
 
 ### 最小可对账工具
 
@@ -269,7 +271,7 @@ SDK major 为 1；新增公开声明须审阅兼容性，不得通过直接更�
 - 模型协议配置、调用预算与存量任务升级统一见 [模型生命周期](model-lifecycle.md)，不直接改写旧检查点。
 - `BusinessPortContext.conversations.read(principal,taskId)` 提供同会话此前成功任务的有限历史（默认 12、最多 24 条，合计 24K 字符）。每条重新检查当前领域 ACL；历史是不可信引用，不能自动重放指令。它不是长期记忆或自动摘要。
 - `Tool.approvalMessage(input)` 可用纯函数呈现确认摘要；框架仍绑定全部实际参数。更改格式所代表的操作语义须升级工具和模块版本。
-- `ConversationPanel` 从 `cloud-agent/ui` 导出，使用 `CloudAgentClient`，支持文本提交、历史、同会话继续、确认/拒绝及取消；模块需要接收 `{text:string}`。进度为任务轮询，没有 token 流式显示。
+- `ConversationPanel` 从 `cloud-agent/ui` 导出，使用 `CloudAgentClient`，支持文本提交、历史、同会话继续、确认/拒绝及取消；模块需要接收 `{text:string}`。通用面板通过有限批次 SSE 读取任务事件；业务模块开启 `ModelRequest.stream` 后可以发布模型增量，终态仍只提交完整模型回合。
 
 ### 邮件和邮箱登录的宿主组合
 

@@ -151,7 +151,9 @@ test("任务剩余预算截断模型调用，执行超时冷却且迟到结果�
     {},
     "timeout",
   );
-  await c.db.pool.query("UPDATE tasks SET execution_ms=975 WHERE id=$1", [
+  // Leave time for admission/database work before dispatch. A 25ms remainder
+  // can legitimately expire before the engine starts on a busy machine.
+  await c.db.pool.query("UPDATE tasks SET execution_ms=500 WHERE id=$1", [
     task.id,
   ]);
   await worker.tick();
@@ -168,6 +170,12 @@ test("任务剩余预算截断模型调用，执行超时冷却且迟到结果�
   assert.equal(await worker.tick(), false);
   assert.equal(calls, 1);
   assert.equal((await c.execution.steps(task.id))[0]!.output, null);
+  const deadline = await c.db.pool.query(
+    "SELECT extract(epoch from deadline_at-created_at) AS seconds FROM model_requests WHERE task_id=$1",
+    [task.id],
+  );
+  assert.ok(Number(deadline.rows[0]?.seconds) > 0);
+  assert.ok(Number(deadline.rows[0]?.seconds) <= 0.5);
   const events = await c.db.pool.query(
     "SELECT data FROM events WHERE task_id=$1 AND type='model.retryable'",
     [task.id],

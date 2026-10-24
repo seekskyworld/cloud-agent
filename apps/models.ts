@@ -15,8 +15,9 @@ const Demo = z
   .strict();
 export const ModelOptions = z
   .object({
-    protocol: z.enum(["completions", "responses"]).optional(),
+    protocol: z.enum(["completions", "responses", "anthropic"]).optional(),
     maxOutputTokens: z.number().int().min(16).max(131072).optional(),
+    contextWindow: z.number().int().min(4096).max(2000000).optional(),
     reasoningLevels: z
       .array(
         z.enum(["none", "minimal", "low", "medium", "high", "xhigh", "max"]),
@@ -48,6 +49,8 @@ const Pi = z
     model: z.string().min(1),
     inputPrice: z.number().positive(),
     outputPrice: z.number().positive(),
+    vision: z.boolean().default(true),
+    video: z.boolean().default(true),
     reasoning: z.boolean().default(false),
     ...ModelOptions.shape,
   })
@@ -89,6 +92,42 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
         maxOutputTokens: config.maxOutputTokens ?? 8192,
         reasoning: config.reasoningLevels ?? ["none"],
         cache: true,
+        modalities:
+          config.vision === false
+            ? ["text"]
+            : config.video === false
+              ? ["text", "image"]
+              : ["text", "image", "video"],
+      },
+      // Profile engines must expose the same streaming contract as the
+      // concrete PiEngine. Keeping only `next` here makes every business package
+      // request that asks for live output fail before the provider is called
+      // with MODEL_STREAM_UNSUPPORTED.
+      async *stream(request, tools, signal, context) {
+        if (!context) throw new Problem(403, "MODEL_CONTEXT_REQUIRED");
+        const connection = await connections.resolve(
+          config.connection,
+          context.principal,
+          signal,
+        );
+        yield* new PiEngine({
+          baseUrl: connection.endpoint,
+          apiKey: bearer(connection.secret),
+          model: config.model,
+          protocol: config.protocol,
+          maxOutputTokens: config.maxOutputTokens,
+          contextWindow: config.contextWindow,
+          inputPrice: config.inputPrice,
+          outputPrice: config.outputPrice,
+          reasoning:
+            config.reasoningLevels?.some((v) => v !== "none") ??
+            config.reasoning,
+          vision: config.vision,
+          video: config.video,
+          reasoningLevels: config.reasoningLevels,
+          managed: config.managed,
+          lifecycle: config.lifecycle,
+        }).stream(request, tools, signal, context);
       },
       async next(request, tools, signal, context) {
         if (!context) throw new Problem(403, "MODEL_CONTEXT_REQUIRED");
@@ -103,11 +142,14 @@ export const modelProviders = new ExtensionRegistry<ModelEngine, Connections>([
           model: config.model,
           protocol: config.protocol,
           maxOutputTokens: config.maxOutputTokens,
+          contextWindow: config.contextWindow,
           inputPrice: config.inputPrice,
           outputPrice: config.outputPrice,
           reasoning:
             config.reasoningLevels?.some((v) => v !== "none") ??
             config.reasoning,
+          vision: config.vision,
+          video: config.video,
           reasoningLevels: config.reasoningLevels,
           managed: config.managed,
           lifecycle: config.lifecycle,

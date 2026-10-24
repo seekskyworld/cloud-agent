@@ -16,7 +16,7 @@ Public entry points:
 - `@cloud-agent/sdk/client`: `CloudAgentClient` for the HTTP v1 API.
 - `@cloud-agent/sdk/connectors`: public mail, channel, artifact store, model and context contracts.
 - `@cloud-agent/sdk/testing`: explicit mail contract checks for isolated fixtures.
-- `@cloud-agent/sdk/ui`: static module and page contracts; UI consumers explicitly install React 19 and its types.
+- `@cloud-agent/sdk/ui`: static module and page contracts; UI consumers explicitly install React 19, React DOM 19 and React types. React DOM renders file-name tooltips outside scrolling containers.
 
 A minimal package uses only the public SDK:
 

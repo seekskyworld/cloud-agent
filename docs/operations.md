@@ -14,25 +14,26 @@ curl -sS http://localhost:3100/ready
 
 应用读取环境变量及根 `.env`；Compose 显式注入变量，自定义配置须同时传给 API 和 Worker。
 
-| 变量                                            | 默认值 / 用途                                                                               |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                                  | 必填；Compose 自动构造受限运行连接                                                          |
-| `AUTH_MODE`                                     | `none` 固定身份；`token` 启用 Bearer                                                        |
-| `LOCAL_WORKSPACE` / `LOCAL_PRINCIPAL`           | `default` / `owner`，固定身份和初始化目标                                                   |
-| `HOST` / `PORT`                                 | `127.0.0.1` / `3100`；镜像内使用 `0.0.0.0:3100`                                             |
-| `MODEL_MODE`                                    | `demo` 回显；`pi` 调用真实模型                                                              |
-| `LLM_BASE_URL`                                  | `https://api.openai.com/v1`，模型 API 根地址，协议选择见 [模型生命周期](model-lifecycle.md) |
-| `LLM_API_KEY` / `LLM_MODEL`                     | Pi 模式必填密钥 / 默认 `gpt-4.1-mini`，按供应商选择                                         |
-| `LLM_INPUT_PRICE` / `LLM_OUTPUT_PRICE`          | 每百万 token 美元估价，正数，默认 1 / 4，并非报价承诺                                       |
-| `WORKER_CONCURRENCY` / `LOG_LEVEL`              | 2（范围 1–32）/ `info`                                                                      |
-| `POSTGRES_PASSWORD` / `RUNTIME_PASSWORD`        | 初始化随机生成；后者须 24–128 位字母数字、下划线或连字符                                    |
-| `API_PORT`                                      | 宿主端口 3100，仍绑定本机                                                                   |
-| `BOOTSTRAP_TOKEN`                               | Token 模式至少 24 字符，数据库只存 SHA-256 摘要                                             |
-| `CONNECTIONS` / `CONNECTION_CREDENTIALS(_FILE)` | 默认空；受控连接和异步秘密供应                                                              |
-| `CHANNEL_ACCOUNTS` / `MODEL_PROFILES`           | 默认空；可选渠道与命名模型                                                                  |
-| `ARTIFACT_STORE` / `ARTIFACT_RETENTION_DAYS`    | 默认关闭 / 30 天；本地或 S3 文件                                                            |
-| `DISPATCH_POLICY` / `EXAMPLES_ENABLED`          | 默认无配额 / false；公平领取及可选示例                                                      |
-| `MIGRATION_DATABASE_URL`                        | migrate、provision、bootstrap:admin 的可选运维连接                                          |
+| 变量                                              | 默认值 / 用途                                                                               |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`                                    | 必填；Compose 自动构造受限运行连接                                                          |
+| `AUTH_MODE`                                       | `none` 固定身份；`token` 启用 Bearer                                                        |
+| `LOCAL_WORKSPACE` / `LOCAL_PRINCIPAL`             | `default` / `owner`，固定身份和初始化目标                                                   |
+| `HOST` / `PORT`                                   | `127.0.0.1` / `3100`；镜像内使用 `0.0.0.0:3100`                                             |
+| `MODEL_MODE`                                      | `demo` 回显；`pi` 调用真实模型                                                              |
+| `LLM_BASE_URL`                                    | `https://api.openai.com/v1`，模型 API 根地址，协议选择见 [模型生命周期](model-lifecycle.md) |
+| `LLM_API_KEY` / `LLM_MODEL`                       | Pi 模式必填密钥 / 默认 `gpt-4.1-mini`，按供应商选择                                         |
+| `LLM_INPUT_PRICE` / `LLM_OUTPUT_PRICE`            | 每百万 token 美元估价，正数，默认 1 / 4，并非报价承诺                                       |
+| `WORKER_CONCURRENCY` / `LOG_LEVEL`                | 2（范围 1–64）/ `info`                                                                      |
+| `DATABASE_POOL_MAX` / `API_RATE_LIMIT_PER_MINUTE` | 20（每个进程，Worker 槽位调高时一并调高）/ 120（按来源每分钟）                              |
+| `POSTGRES_PASSWORD` / `RUNTIME_PASSWORD`          | 初始化随机生成；后者须 24–128 位字母数字、下划线或连字符                                    |
+| `API_PORT`                                        | 宿主端口 3100，仍绑定本机                                                                   |
+| `BOOTSTRAP_TOKEN`                                 | Token 模式至少 24 字符，数据库只存 SHA-256 摘要                                             |
+| `CONNECTIONS` / `CONNECTION_CREDENTIALS(_FILE)`   | 默认空；受控连接和异步秘密供应                                                              |
+| `CHANNEL_ACCOUNTS` / `MODEL_PROFILES`             | 默认空；可选渠道与命名模型                                                                  |
+| `ARTIFACT_STORE` / `ARTIFACT_RETENTION_DAYS`      | 默认关闭 / 30 天；本地或 S3 文件                                                            |
+| `DISPATCH_POLICY` / `EXAMPLES_ENABLED`            | 默认无配额 / false；公平领取及可选示例                                                      |
+| `MIGRATION_DATABASE_URL`                          | migrate、provision、bootstrap:admin 的可选运维连接                                          |
 
 普通 bootstrap 使用 `DATABASE_URL`；Compose 迁移容器提供 owner 连接，API/Worker 只获受限连接。已有身份角色、能力、禁用状态保持，Token 模式重跑 bootstrap 会更新指定身份的 Token 摘要。开发与测试变量见 [开发指南](development.md)。
 

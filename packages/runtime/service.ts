@@ -223,9 +223,13 @@ export class TaskService {
     await this.authorize(principal, task);
     return this.tasks.detail(principal, id);
   }
-  async list(principal: Principal, offset: number) {
+  async list(
+    principal: Principal,
+    offset: number,
+    filter?: { modules?: string[]; projectId?: string },
+  ) {
     principal = await this.current(principal);
-    const rows = await this.tasks.list(principal, offset);
+    const rows = await this.tasks.list(principal, offset, filter);
     return this.summaries(principal, rows);
   }
   private summaries(principal: Principal, rows: Task[]) {
@@ -247,6 +251,8 @@ export class TaskService {
           status: row.status,
           created_at: row.created_at,
           error: row.error,
+          conversation_id: row.conversation_id,
+          input: row.input,
           available: Boolean(module),
           compatibility: this.registry.accepts(row)
             ? "compatible"

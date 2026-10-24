@@ -111,7 +111,7 @@ export async function createContainer(
   extensions: ContainerExtensions = {},
 ) {
   validateHostExtensions(extensions);
-  const db = new Database(config.DATABASE_URL);
+  const db = new Database(config.DATABASE_URL, config.DATABASE_POOL_MAX ?? 20);
   const resources = new Resources();
   resources.add(() => db.close());
   try {
@@ -285,6 +285,7 @@ async function assemble(
     registry,
     resources,
   );
+  addArtifactHooks(applications, files);
   const channels = await assembleChannels(
     config,
     extensions.channels,
@@ -403,6 +404,16 @@ async function assembleFiles(
   return files;
 }
 export type Container = Awaited<ReturnType<typeof createContainer>>;
+
+/** 业务包注册的产物回调（例如同步到业务自己的项目目录）。 */
+function addArtifactHooks(
+  applications: BusinessApplications,
+  files: ArtifactFiles | undefined,
+) {
+  for (const entry of applications.entries)
+    if (entry.instance.onArtifactStored)
+      files?.addStoredHook(entry.instance.onArtifactStored);
+}
 
 function channelBindings(config: Config, extensions: ContainerExtensions) {
   const entries =

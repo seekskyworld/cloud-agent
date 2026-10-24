@@ -1011,3 +1011,320 @@ test("读取授权收到原始步骤而非内核猜测的数据结构，产物�
     code: "RESOURCE_ACCESS_CHANGED",
   });
 });
+
+test("opted-in reconciliation polling resumes the same conversation without resubmitting writes", async () => {
+  let writes = 0;
+  let queries = 0;
+  c.registry.register(
+    custom({
+      name: "fixture.poll",
+      version: "1",
+      description: "test",
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      capability: "report:run",
+      effect: "reconcilable_write",
+      timeoutMs: 1000,
+      reconciliationPolling: { intervalMs: 1000, maxAttempts: 3 },
+      async execute() {
+        writes++;
+        return { kind: "unknown", reconciliationRef: "remote" };
+      },
+      async reconcile() {
+        queries++;
+        return queries === 1
+          ? { kind: "unknown", reconciliationRef: "remote" }
+          : { kind: "succeeded", output: { ok: true } };
+      },
+    }),
+  );
+  const task = await c.tasks.create(principal, "fixture", {}, randomUUID());
+  const conversation = (await c.tasks.get(principal, task.id)).conversation_id;
+  for (let index = 0; index < 3; index++) {
+    await c.db.pool.query("UPDATE tasks SET available_at=now() WHERE id=$1", [
+      task.id,
+    ]);
+    await drain(c);
+  }
+  const result = await c.tasks.get(principal, task.id);
+  assert.equal(result.status, "succeeded");
+  assert.equal(result.conversation_id, conversation);
+  assert.equal(writes, 1);
+  assert.equal(queries, 2);
+});
+
+test("reconciliation stops as unknown at the smaller task attempt budget instead of failing or resubmitting", async () => {
+  let writes = 0;
+  let queries = 0;
+  const module = custom({
+    name: "fixture.poll",
+    version: "1",
+    description: "test",
+    input: z.object({}),
+    output: z.object({}),
+    capability: "report:run",
+    effect: "reconcilable_write",
+    timeoutMs: 1000,
+    reconciliationPolling: { intervalMs: 1000, maxAttempts: 20 },
+    async execute() {
+      writes++;
+      return { kind: "unknown", reconciliationRef: "remote" };
+    },
+    async reconcile() {
+      queries++;
+      return { kind: "unknown", reconciliationRef: "remote" };
+    },
+  });
+  module.budget = { maxAttempts: 2 };
+  c.registry.register(module);
+  const task = await c.tasks.create(principal, "fixture", {}, randomUUID());
+  for (let index = 0; index < 3; index++) {
+    await c.db.pool.query("UPDATE tasks SET available_at=now() WHERE id=$1", [
+      task.id,
+    ]);
+    await drain(c);
+  }
+  const result = await c.tasks.get(principal, task.id);
+  assert.equal(result.status, "waiting_external");
+  assert.equal(result.error, null);
+  assert.equal(writes, 1);
+  assert.equal(queries, 1);
+});
+
+test("accepted deferred writes release the worker, retain the original key and do not spend the retry budget polling", async () => {
+  const keys: string[] = [];
+  let queries = 0;
+  const module = custom({
+    name: "fixture.deferred",
+    version: "1",
+    description: "test",
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+    capability: "report:run",
+    effect: "reconcilable_write",
+    deferred: { maxConcurrent: 2 },
+    timeoutMs: 1000,
+    async execute(_input, context) {
+      keys.push(context.idempotencyKey);
+      return {
+        kind: "pending",
+        reconciliationRef: "provider-1",
+        retryAfterMs: 1000,
+      };
+    },
+    async reconcile(_input, context) {
+      assert.equal(context.idempotencyKey, keys[0]);
+      queries++;
+      return queries < 5
+        ? {
+            kind: "pending",
+            reconciliationRef: "provider-1",
+            retryAfterMs: 1000,
+          }
+        : { kind: "succeeded", output: { ok: true } };
+    },
+  });
+  module.budget = { maxAttempts: 1 };
+  c.registry.register(module);
+  const task = await c.tasks.create(principal, "fixture", {}, randomUUID());
+  await drain(c);
+  assert.equal(
+    (await c.tasks.get(principal, task.id)).status,
+    "retry_scheduled",
+  );
+  assert.equal((await c.tasks.get(principal, task.id)).lease_token, null);
+  // 真实数据库只前移测试请求的调度时间，不使用生产任务或睡眠等待。
+  for (let i = 0; i < 5; i++) {
+    await c.db.pool.query(
+      "UPDATE steps SET output=jsonb_set(output,'{resumeAt}','0') WHERE task_id=$1 AND status='deferred'",
+      [task.id],
+    );
+    await c.db.pool.query("UPDATE tasks SET available_at=now() WHERE id=$1", [
+      task.id,
+    ]);
+    await drain(c);
+  }
+  assert.equal((await c.tasks.get(principal, task.id)).status, "succeeded");
+  assert.equal((await c.tasks.steps(task.id))[0]?.attempts, 1);
+  assert.equal(keys.length, 1);
+  assert.equal(queries, 5);
+});
+
+test("opted-in unknown branches keep unknown invocation facts while unrelated work completes", async () => {
+  let submissions = 0;
+  const module = custom({
+    name: "fixture.isolated",
+    version: "1",
+    description: "test",
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+    capability: "report:run",
+    effect: "reconcilable_write",
+    continueOnUnknown: true,
+    timeoutMs: 1000,
+    async execute() {
+      submissions++;
+      return { kind: "unknown", reconciliationRef: "unqueryable" };
+    },
+    async reconcile() {
+      throw Error("must not blindly poll an unqueryable provider");
+    },
+  });
+  c.registry.register(module);
+  const task = await c.tasks.create(principal, "fixture", {}, randomUUID());
+  await drain(c);
+  const detail = await c.service.detail(principal, task.id);
+  assert.equal(detail.task.status, "succeeded");
+  assert.equal(detail.steps[0]?.status, "unknown");
+  assert.equal(detail.invocations[0]?.status, "unknown");
+  assert.match(JSON.stringify(detail.task.result), /costStatus.*unknown/);
+  assert.equal(submissions, 1);
+});
+
+test("cancelling a deferred operation prevents subsequent collection and retains its remote reference", async () => {
+  let queries = 0;
+  c.registry.register(
+    custom({
+      name: "fixture.defer-cancel",
+      version: "1",
+      description: "test",
+      input: z.object({}),
+      output: z.object({}),
+      capability: "report:run",
+      effect: "reconcilable_write",
+      deferred: { maxConcurrent: 1 },
+      timeoutMs: 1000,
+      execute: async () => ({
+        kind: "pending",
+        reconciliationRef: "remote-not-undone",
+        retryAfterMs: 1000,
+      }),
+      reconcile: async () => {
+        queries++;
+        return { kind: "succeeded", output: {} };
+      },
+    }),
+  );
+  const task = await c.tasks.create(principal, "fixture", {}, randomUUID());
+  await drain(c);
+  await c.tasks.cancel(principal, task.id);
+  await drain(c);
+  const detail = await c.service.detail(principal, task.id);
+  assert.equal(detail.task.status, "cancelled");
+  assert.equal(queries, 0);
+  assert.equal(detail.invocations[0]?.reconciliation_ref, "remote-not-undone");
+});
+
+test("deferred collection survives worker loss without resubmission or retry-budget loss", async () => {
+  let submissions = 0;
+  let queries = 0;
+  const tool: Tool = {
+    name: "fixture.crash-collection",
+    version: "1",
+    description: "test",
+    input: z.object({}),
+    output: z.object({ ok: z.boolean() }),
+    capability: "report:run",
+    effect: "reconcilable_write",
+    deferred: { maxConcurrent: 1 },
+    timeoutMs: 1000,
+    async execute() {
+      submissions++;
+      return {
+        kind: "pending",
+        reconciliationRef: "original-provider-id",
+        retryAfterMs: 1000,
+      };
+    },
+    async reconcile() {
+      queries++;
+      return { kind: "succeeded", output: { ok: true } };
+    },
+  };
+  const module = custom(tool);
+  module.budget = { maxAttempts: 1 };
+  c.registry.register(module);
+  const task = await create("fixture", {});
+  await c.worker.tick();
+  const old = (await c.execution.claim("lost-worker"))!;
+  const step = (await c.execution.steps(task.id))[0]!;
+  await c.execution.begin(old, step);
+  await expired(c, old);
+  await drain(c);
+  assert.equal((await c.tasks.get(principal, task.id)).status, "succeeded");
+  assert.equal((await c.execution.steps(task.id))[0]!.attempts, 1);
+  assert.equal(submissions, 1);
+  assert.equal(queries, 1);
+  await assert.rejects(
+    c.execution.finish(
+      old,
+      step,
+      { kind: "pending", reconciliationRef: "late", retryAfterMs: 1000 },
+      1,
+    ),
+    { code: "LEASE_LOST" },
+  );
+});
+
+test("isolated unknown reconciliation records success or closure without reopening completed work", async () => {
+  c.registry.register(
+    custom({
+      name: "fixture.unknown-close",
+      version: "1",
+      description: "test",
+      input: z.object({}),
+      output: z.object({ ok: z.boolean() }),
+      capability: "report:run",
+      effect: "reconcilable_write",
+      continueOnUnknown: true,
+      timeoutMs: 1000,
+      execute: async () => ({ kind: "unknown", reconciliationRef: "original" }),
+      reconcile: async () => {
+        throw Error("never resend");
+      },
+    }),
+  );
+  for (const decision of ["succeeded", "cancelled"] as const) {
+    const task = await create("fixture", {});
+    await drain(c);
+    const before = await c.tasks.get(principal, task.id);
+    const step = (await c.execution.steps(task.id))[0]!;
+    const input = {
+      stepId: step.id,
+      expectedAttempts: 1,
+      decision,
+      output: { ok: true },
+      reason: "independent provider audit",
+      receipt: "audit-receipt",
+    };
+    await c.db.pool.query(
+      "UPDATE principals SET capabilities=array_remove(capabilities,'task:reconcile') WHERE workspace_id=$1",
+      [principal.workspace_id],
+    );
+    await assert.rejects(
+      c.service.reconcile(principal, task.id, "resolve", input),
+      { code: "FORBIDDEN" },
+    );
+    await c.db.pool.query(
+      "UPDATE principals SET capabilities=array_append(capabilities,'task:reconcile') WHERE workspace_id=$1",
+      [principal.workspace_id],
+    );
+    await c.service.reconcile(principal, task.id, "resolve", input);
+    await c.service.reconcile(principal, task.id, "resolve", input);
+    const after = await c.service.detail(principal, task.id);
+    assert.equal(after.task.status, "succeeded");
+    assert.deepEqual(after.task.result, before.result);
+    assert.equal(after.steps[0]!.status, "succeeded");
+    assert.equal(
+      after.invocations[0]!.status,
+      decision === "succeeded" ? "succeeded" : "reconciled_closed",
+    );
+    if (decision === "cancelled")
+      assert.deepEqual(after.steps[0]!.output, {
+        status: "unresolved_closed",
+        reason: input.reason,
+        receipt: input.receipt,
+        remoteEffectUndone: false,
+      });
+  }
+});

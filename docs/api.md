@@ -125,7 +125,7 @@ Token 模式加 `token: () => accessToken`。客户端校验请求和响应，�
 | `POST /delegated/tasks/:id/approval`              | `{waitId,approved}` + 幂等键；不允许代填普通输入，审批记录真实受托人                                           |
 | `POST /memories`、`DELETE /memories/:id`          | 启用记忆后使用；write 能力；创建 `{namespace,content,days}` + 幂等键                                           |
 
-核实未知写入仍通过 `POST /tasks/:id/reconciliation`，要求 task:reconcile、当前工具权限、步骤尝试版本、外部回执与原因。工作台在对应任务详情提供入口；这不会再次发送原工具调用。模型流式增量不是持久事件，不能用增量文本作为完成回执。
+核实未知写入仍通过 `POST /tasks/:id/reconciliation`，要求 task:reconcile、当前工具权限、步骤尝试版本、外部回执与原因。工作台在对应任务详情提供入口；这不会再次发送原工具调用。模型流式增量通过 `GET /tasks/:id/events?format=sse&after=<cursor>` 作为临时 `model.delta` 事件展示，不能替代最终模型回合或完成回执。
 
 ## 可选公开查询与邮箱登录
 

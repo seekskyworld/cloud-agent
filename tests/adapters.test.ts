@@ -97,7 +97,7 @@ test("Pi 真正完成单轮协议调用并规范化工具请求，不执行工�
     };
     assert.deepEqual(body.messages, [
       { role: "system", content: "test" },
-      { role: "user", content: "test" },
+      { role: "user", content: [{ type: "text", text: "test" }] },
     ]);
     assert.equal(body.tools[0]!.function.description, "search");
     const parameters = body.tools[0]!.function.parameters;
@@ -192,4 +192,82 @@ test("Pi 超时分类保留退避窗口，SDK 不在 HTTP 失败后自行重试"
     );
     assert.equal(calls - before, 1);
   }
+});
+
+test("truncated tool turns preserve usage and continue without executing partial parameters or retrying in the adapter", async (t) => {
+  const app = Fastify();
+  let requests = 0;
+  app.post("/chat/completions", async (req, reply) => {
+    requests++;
+    const body = req.body as { tools: { function: { name: string } }[] };
+    const name = body.tools[0]!.function.name;
+    const chunks = [
+      {
+        id: "fixture",
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: "partial",
+                  type: "function",
+                  function: { name, arguments: '{"query":"unfinished' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: "fixture",
+        choices: [{ index: 0, delta: {}, finish_reason: "length" }],
+        usage: { prompt_tokens: 10, completion_tokens: 100, total_tokens: 110 },
+      },
+    ];
+    return reply
+      .type("text/event-stream")
+      .send(
+        chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join("") +
+          "data: [DONE]\n\n",
+      );
+  });
+  const baseUrl = await app.listen({ host: "127.0.0.1", port: 0 });
+  t.after(() => app.close());
+  const engine = new PiEngine({
+    baseUrl,
+    apiKey: "fixture",
+    model: "fixture",
+    inputPrice: 1,
+    outputPrice: 1,
+  });
+  const tool: Tool = {
+    name: "fixture.write",
+    version: "1",
+    description: "fixture",
+    capability: "example:write",
+    effect: "idempotent_write",
+    timeoutMs: 1000,
+    input: z.object({ query: z.string() }),
+    output: z.object({}),
+    async execute() {
+      throw new Error("must never execute");
+    },
+  };
+  const result = await engine.next(
+    {
+      instructions: "fixture",
+      messages: [{ role: "user", text: "fixture" }],
+      tools: [tool.name],
+      maxOutputTokens: 100,
+    },
+    [tool],
+    AbortSignal.timeout(5000),
+  );
+  assert.deepEqual(result.calls, []);
+  assert.equal((result.data as { reason: string }).reason, "output_limit");
+  assert.equal(result.outputTokens, 100);
+  assert.equal(requests, 1);
 });

@@ -1,5 +1,6 @@
 /** Worker 停止领取后有限排空；超期退出由租约恢复接手，绝不推断远端动作未发生。 */
 import { hostname } from "node:os";
+import { setTimeout as delay } from "node:timers/promises";
 import { randomUUID } from "node:crypto";
 import { runLoop } from "../../packages/runtime/loop.js";
 import { ChannelHub } from "../../packages/channels/hub.js";
@@ -26,6 +27,8 @@ function loop(kind: string, intervalMs: number, tick: () => Promise<unknown>) {
     stopping: () => stopping,
   });
 }
+let lastEmptyClaim = 0;
+let lastSlotHeartbeat = 0;
 const pulse = setInterval(() => {
   void container.operations.heartbeat(id).catch(() => {});
 }, 10_000);
@@ -50,8 +53,20 @@ const loops = [
   }),
   ...Array.from({ length: container.config.WORKER_CONCURRENCY }, (_, slot) =>
     loop(`execute_${slot}`, 250, async () => {
-      await container.operations.heartbeat(id);
-      return container.worker.tick();
+      // 空闲时只有 0 号槽位快速轮询；其余槽位在最近一次领取落空后 3 秒内不领取，
+      // 领到任务就恢复全速。避免几十个槽位每 250ms 争同一把准入锁（空闲时 CPU 与数据库空转）。
+      if (slot > 0 && Date.now() - lastEmptyClaim < 3_000) {
+        await delay(1_000);
+        return false;
+      }
+      if (Date.now() - lastSlotHeartbeat > 1_000) {
+        lastSlotHeartbeat = Date.now();
+        await container.operations.heartbeat(id);
+      }
+      const worked = await container.worker.tick();
+      if (worked) lastEmptyClaim = 0;
+      else lastEmptyClaim = Date.now();
+      return worked;
     }),
   ),
 ];

@@ -2,7 +2,10 @@
 import { z } from "zod";
 import type { FastifyInstance } from "fastify";
 import { Key } from "../../packages/api/contracts.js";
+import { Problem } from "../../packages/contracts/index.js";
+import type { BusinessFile } from "../../packages/business/application.js";
 import type { Container } from "../container.js";
+import { sendFile } from "./files.js";
 export function registerBusinessRoutes(
   api: FastifyInstance,
   container: Container,
@@ -20,6 +23,13 @@ export function registerBusinessRoutes(
           method: r.method,
           input: z.toJSONSchema(r.input),
           output: z.toJSONSchema(r.output),
+        })),
+      files: (entry.instance.files ?? [])
+        .filter((r) => req.principal.capabilities.includes(r.capability))
+        .map((r) => ({
+          id: r.id,
+          method: r.method,
+          input: z.toJSONSchema(r.input),
         })),
     })),
   );
@@ -44,6 +54,52 @@ export function registerBusinessRoutes(
             key,
           );
         },
+      });
+    }
+  for (const entry of container.applications.entries)
+    for (const route of entry.instance.files ?? []) {
+      const url = `/business/${entry.id}/files/${route.id}`;
+      const options = route.ratePerMinute
+        ? {
+            config: {
+              rateLimit: { max: route.ratePerMinute, timeWindow: 60_000 },
+            },
+          }
+        : {};
+      if (route.method === "GET") {
+        api.get(url, options, async (req, reply) => {
+          const { inline, ...query } = req.query as Record<string, unknown>;
+          const input = route.input.parse(query);
+          const file = (await container.businessRequests.invokeFile(
+            route,
+            entry.id,
+            req.principal,
+            input,
+          )) as BusinessFile;
+          return sendFile(req, reply, file, inline === "true");
+        });
+        continue;
+      }
+      // PUT：只在这个作用域里接收原始字节，体积上限按路由声明。
+      const maxBytes = route.maxBytes ?? 50_000_000;
+      void api.register(async (scope) => {
+        scope.addContentTypeParser(
+          "application/octet-stream",
+          { parseAs: "buffer", bodyLimit: maxBytes },
+          (_request, body, done) => done(null, body),
+        );
+        scope.put(url, { bodyLimit: maxBytes, ...options }, async (req) => {
+          if (!Buffer.isBuffer(req.body))
+            throw new Problem(415, "UPLOAD_BODY_REQUIRED");
+          return container.businessRequests.invokeFile(
+            route,
+            entry.id,
+            req.principal,
+            route.input.parse(req.query),
+            Key.parse(req.headers["idempotency-key"]),
+            req.body,
+          );
+        });
       });
     }
 }

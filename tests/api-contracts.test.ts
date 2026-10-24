@@ -86,6 +86,7 @@ test("公共客户端创建/重放/读取/下载/事件契约闭环，文档和�
     assert.ok(
       (await client.call("events", undefined, { id: task.id })).length > 0,
     );
+    assert.ok((await client.streamEvents(task.id, "0")).length > 0);
     assert.ok(
       (
         await client.call("artifact", undefined, {
@@ -135,6 +136,23 @@ test("客户端拒绝缺请求键/非法 ID/错误响应，页面注册拒绝同
     /DUPLICATE/,
   );
   assert.ok(defineViews([{ moduleId: "x" }]).x);
+});
+
+test("客户端按游标解析有限批次 SSE 事件", async () => {
+  const taskId = "00000000-0000-4000-8000-000000000001";
+  const client = new CloudAgentClient({
+    fetch: async (input) => {
+      assert.match(String(input), /format=sse&after=0/);
+      return new Response(
+        `retry: 1000\n\nid: 7\nevent: model.delta\ndata: ${JSON.stringify({ id: "7", type: "model.delta", data: { text: "你好" }, created_at: "2026-01-01T00:00:00.000Z" })}\n\n`,
+        { status: 200, headers: { "content-type": "text/event-stream" } },
+      );
+    },
+  });
+  const events = await client.streamEvents(taskId);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.type, "model.delta");
+  assert.deepEqual(events[0]?.data, { text: "你好" });
 });
 
 // 每个局部 Schema 引用须能在完整 OpenAPI 文档中解析，防止只校验 JSON 外观。

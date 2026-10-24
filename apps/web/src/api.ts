@@ -42,7 +42,7 @@ export const statusLabel: Record<string, string> = {
   waiting_input: "等待补充",
   waiting_approval: "等待确认",
   waiting_external: "等待外部结果",
-  retry_scheduled: "等待重试",
+  retry_scheduled: "等待继续",
   succeeded: "已完成",
   failed: "失败",
   cancelled: "已取消",

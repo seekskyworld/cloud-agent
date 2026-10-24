@@ -8,10 +8,10 @@ export class Database {
   readonly pool: Pool;
   readonly cancellations: CancellationNotifications;
   private closing = false;
-  constructor(url: string) {
+  constructor(url: string, poolMax = 20) {
     this.pool = new Pool({
       connectionString: url,
-      max: 20,
+      max: poolMax,
       connectionTimeoutMillis: 5_000,
       statement_timeout: 30_000,
       idle_in_transaction_session_timeout: 30_000,

@@ -52,8 +52,7 @@ export class ReconciliationStore {
           throw new Problem(409, "IDEMPOTENCY_CONFLICT");
         return;
       }
-      if (task.status !== "waiting_external" || task.lease_token)
-        throw new Problem(409, "TASK_NOT_RECONCILABLE");
+      if (task.lease_token) throw new Problem(409, "TASK_NOT_RECONCILABLE");
       const step = (
         await client.query<Step>(
           "SELECT * FROM steps WHERE id=$1 AND task_id=$2 FOR UPDATE",
@@ -71,6 +70,17 @@ export class ReconciliationStore {
       const tool = module.tools.find((t) => t.name === action.name);
       if (!tool) throw new Problem(409, "TOOL_NOT_ALLOWED");
       requireCapability(principal, tool.capability);
+      const isolated =
+        tool.continueOnUnknown &&
+        [
+          "queued",
+          "retry_scheduled",
+          "succeeded",
+          "cancelled",
+          "failed",
+        ].includes(task.status);
+      if (task.status !== "waiting_external" && !isolated)
+        throw new Problem(409, "TASK_NOT_RECONCILABLE");
       let output: Json = null;
       if (input.decision === "succeeded")
         output = tool.output.parse(input.output) as Json;
@@ -97,10 +107,29 @@ export class ReconciliationStore {
           [step.id, input.receipt],
         );
       }
-      await client.query(
-        "UPDATE tasks SET status=$2,error=NULL,available_at=now(),updated_at=now() WHERE id=$1",
-        [taskId, input.decision === "succeeded" ? "queued" : "cancelled"],
-      );
+      if (isolated && input.decision === "cancelled") {
+        await client.query(
+          "UPDATE steps SET status='succeeded',output=$2,updated_at=now() WHERE id=$1",
+          [
+            step.id,
+            JSON.stringify({
+              status: "unresolved_closed",
+              reason: input.reason,
+              receipt: input.receipt,
+              remoteEffectUndone: false,
+            }),
+          ],
+        );
+        await client.query(
+          "UPDATE tool_invocations SET status='reconciled_closed',receipt=$2,updated_at=now() WHERE id=$1",
+          [step.id, input.receipt],
+        );
+      }
+      if (!isolated)
+        await client.query(
+          "UPDATE tasks SET status=$2,error=NULL,available_at=now(),updated_at=now() WHERE id=$1",
+          [taskId, input.decision === "succeeded" ? "queued" : "cancelled"],
+        );
       await event(client, taskId, "task.reconciled", {
         stepId: step.id,
         decision: input.decision,

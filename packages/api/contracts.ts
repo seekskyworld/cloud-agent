@@ -37,6 +37,8 @@ export const TaskSummarySchema = z.object({
   status: TaskStatus,
   created_at: Timestamp,
   error: z.string().nullable(),
+  conversation_id: z.uuid().optional(),
+  input: DataSchema.optional(),
   available: z.boolean().optional(),
   compatibility: z.string().optional(),
 });
@@ -46,6 +48,12 @@ export const FileSchema = z.object({
   media_type: z.string(),
   bytes: z.number(),
   digest: z.string(),
+});
+export const TaskEventSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  data: JsonSchema,
+  created_at: Timestamp,
 });
 export const DetailSchema = z.object({
   task: TaskSummarySchema.extend({
@@ -214,17 +222,11 @@ export const endpoints = {
     method: "GET",
     path: "/tasks/{id}/events",
     body: z.undefined(),
-    response: z.array(
-      z.object({
-        id: z.string(),
-        type: z.string(),
-        data: JsonSchema,
-        created_at: Timestamp,
-      }),
-    ),
+    response: z.array(TaskEventSchema),
   }),
 } as const;
 export type Agent = z.infer<typeof AgentSchema>;
 export type Detail = z.infer<typeof DetailSchema>;
 export type TaskSummary = z.infer<typeof TaskSummarySchema>;
 export type Me = z.infer<typeof MeSchema>;
+export type TaskEvent = z.infer<typeof TaskEventSchema>;

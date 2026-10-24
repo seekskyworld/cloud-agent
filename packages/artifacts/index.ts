@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   Problem,
   type Principal,
+  type ArtifactStoredHook,
   type ExecutionContext,
 } from "../contracts/index.js";
 import { fingerprint } from "../contracts/fingerprint.js";
@@ -14,7 +15,10 @@ import type { ArtifactStore } from "../connectors/artifacts.js";
 export type { ArtifactStore } from "../connectors/artifacts.js";
 export const fileDigest = (data: Buffer) =>
   createHash("sha256").update(data).digest("hex");
-export const MAX_FILE_BYTES = 10_000_000;
+// The physical store must accept assembled episodes; JSON and image artifacts
+// keep the smaller logical limit enforced by ArtifactFiles.put below.
+export const MAX_FILE_BYTES = 200_000_000;
+export const MAX_NON_MEDIA_FILE_BYTES = 10_000_000;
 export function objectKey(key: string) {
   if (!/^[a-f0-9]{64}$/.test(key))
     throw new Problem(400, "ARTIFACT_KEY_INVALID");
@@ -32,7 +36,13 @@ interface FileRow {
   state: string;
   expired: boolean;
 }
+export type { ArtifactStoredHook } from "../contracts/index.js";
 export class ArtifactFiles {
+  private storedHooks: ArtifactStoredHook[] = [];
+  /** 业务包注册产物保存后的回调（装配时调用）。 */
+  addStoredHook(hook: ArtifactStoredHook) {
+    this.storedHooks.push(hook);
+  }
   constructor(
     private db: Database,
     private tasks: TaskService,
@@ -59,9 +69,11 @@ export class ArtifactFiles {
       !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mediaType)
     )
       throw new Problem(400, "ARTIFACT_METADATA_INVALID");
-    if (data.length > MAX_FILE_BYTES)
-      throw new Problem(413, "ARTIFACT_TOO_LARGE");
-    await this.tasks.get(context.principal, context.taskId);
+    const maxBytes = mediaType.startsWith("video/")
+      ? MAX_FILE_BYTES
+      : MAX_NON_MEDIA_FILE_BYTES;
+    if (data.length > maxBytes) throw new Problem(413, "ARTIFACT_TOO_LARGE");
+    const task = await this.tasks.get(context.principal, context.taskId);
     const digest = fileDigest(data),
       key = fileDigest(
         Buffer.from(
@@ -101,6 +113,16 @@ export class ArtifactFiles {
       [row.id],
     );
     if (!ready.rowCount) throw new Problem(410, "ARTIFACT_EXPIRED");
+    for (const hook of this.storedHooks)
+      await hook({
+        artifactUri: `/v1/files/${row.id}`,
+        task: { id: task.id, moduleId: task.module_id, input: task.input },
+        context,
+        name,
+        mediaType,
+        data,
+        signal,
+      });
     return {
       id: row.id,
       name,
@@ -133,6 +155,18 @@ export class ArtifactFiles {
       throw new Problem(502, "ARTIFACT_INTEGRITY_FAILED");
     await this.tasks.get(actor, row.task_id);
     return { name: row.name, mediaType: row.media_type, data };
+  }
+  /** Reuse a ready immutable object from an earlier task in the same workspace. */
+  async findByDigest(actor: Principal, digest: string) {
+    const row = (
+      await this.db.pool.query<FileRow>(
+        "SELECT *,expires_at<=now() AS expired FROM file_artifacts WHERE digest=$1 AND state='ready' AND expires_at>now() ORDER BY created_at DESC LIMIT 1",
+        [digest],
+      )
+    ).rows[0];
+    if (!row) return undefined;
+    await this.tasks.get(actor, row.task_id);
+    return { id: row.id, name: row.name, mediaType: row.media_type };
   }
   /** 运维显式调用；只删除当前存储已过期对象，失败不删元数据，可重入。 */
   async prune() {

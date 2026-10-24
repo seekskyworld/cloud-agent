@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+- 业务包可声明 `files` 文件路由（`/v1/business/<包>/files/<id>`）：GET 返回业务存储里的文件，平台负责 Range、`inline=true` 内联与安全头；PUT 接收原始字节（声明 `maxBytes`，必须带 `Idempotency-Key`），共用能力复核与审计。`/v1/files/:id` 支持 Range（视频拖动进度、断点续传）与 `inline=true`。
+- 模块可声明 `compatibility.previousVersions: "read-only"`：升级前创建的任务不必逐个注册旧版本也能读取，平台用当前版本生成只读模块，继续执行返回 409 `MODULE_VERSION_RETIRED`。
+- 业务包可声明 `onArtifactStored`：产物保存后拿到任务输入与执行上下文，自行同步到业务存储；`ArtifactFiles.addStoredHook` 供程序化装配。视频类产物物理上限提高到 200 MB，其余仍为 10 MB；`ArtifactFiles.findByDigest` 复用同工作区已有的就绪对象。
+- 运行时：后台工具可声明 `deferred`（已受理的异步写入交回调度器并按原键轮询）、`reconciliationPolling` 与 `continueOnUnknown`；预算可声明 `unbounded`（受信模块不计入任务总量，单次超时与重试照常），子任务预算继承；模型请求可限制单次工具调用数 `maxToolCalls`；模型流式文本写入 `model.delta` 事件，客户端 `streamEvents` 按游标读取；成本可按金额预留；任务列表可按 `modules`、`projectId` 过滤；视频附件以低分辨率帧序列传给支持 video 的模型。
+- 配置：`DATABASE_POOL_MAX`（连接池上限）、`API_RATE_LIMIT_PER_MINUTE`（按来源的接口限流），`WORKER_CONCURRENCY` 上限提高到 64；Worker 空闲时只有 0 号槽快速轮询，其余槽落空后 3 秒内不再领取，心跳每秒最多一次，降低空闲 CPU 与数据库负载。
+- 覆盖率门槛默认只统计 `packages/**`，下游仓库可用 `COVERAGE_INCLUDE`（逗号分隔 glob）把自己的业务代码纳入。
+
 - 升级 Pi AI 1.3.0：最终参数为坏 JSON 的工具调用会带 `argumentsError` 而不再只保留已解析字段；修复非法 `\u` 转义丢字段、Anthropic 带图错误工具结果 400、纯空白工具输出与若干网关可重试错误。引擎兼容指纹更新为 `pi:1.3.0`，升级前排空已有模型任务或保留旧版本兼容 Worker。
 - 更新 CI Actions、Pi AI 1.0.4、Vite 8 及邮件/开发依赖，重新生成依赖许可。适配 Pi 1.x 的 transcript 上下文，保留系统指令和工具声明；Pi 引擎版本进入恢复指纹；升级前排空已有模型任务，或保留旧版本兼容 Worker，不自动迁移旧任务和模型检查点。
 

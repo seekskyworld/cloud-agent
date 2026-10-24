@@ -115,6 +115,16 @@ export class ExecutionStore implements ExecutionPort {
     );
     return !!result.rowCount;
   }
+  async modelProgress(task: Task, step: Step, text: string): Promise<void> {
+    if (!text) return;
+    await this.db.transaction(async (client) => {
+      await this.lock(client, task);
+      await event(client, task.id, "model.delta", {
+        stepId: step.id,
+        text: text.slice(0, 20_000),
+      });
+    });
+  }
   async steps(taskId: string): Promise<Step[]> {
     return (
       await this.db.pool.query<Step>(
@@ -148,7 +158,7 @@ export class ExecutionStore implements ExecutionPort {
           [task.id],
         )
       ).rows[0]!;
-      if (Number(count.count) >= task.budget.maxSteps)
+      if (!task.budget.unbounded && Number(count.count) >= task.budget.maxSteps)
         throw new Problem(422, "STEP_BUDGET_EXCEEDED");
       const step = (
         await client.query<Step>(
@@ -174,7 +184,16 @@ export class ExecutionStore implements ExecutionPort {
   async begin(task: Task, step: Step): Promise<void> {
     await this.db.transaction(async (client) => {
       await this.lock(client, task);
-      if (step.attempts >= task.budget.maxAttempts)
+      // 收取已受理请求不再消耗提交尝试；收取进程崩溃后仍由持久pending回执识别。
+      const collecting =
+        step.kind === "tool" &&
+        (step.status === "deferred" ||
+          (step.status === "running" &&
+            step.output !== null &&
+            typeof step.output === "object" &&
+            !Array.isArray(step.output) &&
+            step.output.kind === "pending"));
+      if (!collecting && step.attempts >= task.budget.maxAttempts)
         throw new Problem(422, "ATTEMPT_BUDGET_EXCEEDED");
       const counter = step.kind === "model" ? "model_calls" : "tool_calls";
       const max =
@@ -182,14 +201,20 @@ export class ExecutionStore implements ExecutionPort {
           ? task.budget.maxModelCalls
           : task.budget.maxToolCalls;
       const updated = await client.query(
-        `UPDATE tasks SET ${counter}=${counter}+1 WHERE id=$1 AND ${counter}<$2 AND execution_ms<$3 AND cost_usd<$4`,
-        [task.id, max, task.budget.maxDurationMs, task.budget.maxCostUsd],
+        `UPDATE tasks SET ${counter}=${counter}+1 WHERE id=$1 AND ($5::boolean OR (${counter}<$2 AND execution_ms<$3 AND cost_usd<$4))`,
+        [
+          task.id,
+          max,
+          task.budget.maxDurationMs,
+          task.budget.maxCostUsd,
+          task.budget.unbounded === true,
+        ],
       );
       if (!updated.rowCount)
         throw new Problem(422, "EXECUTION_BUDGET_EXCEEDED");
       await client.query(
-        "UPDATE steps SET status='running',attempts=attempts+1,updated_at=now() WHERE id=$1",
-        [step.id],
+        "UPDATE steps SET status='running',attempts=attempts+CASE WHEN $2 THEN 0 ELSE 1 END,updated_at=now() WHERE id=$1",
+        [step.id, collecting],
       );
       await client.query(
         "UPDATE tool_invocations SET status='dispatching',updated_at=now() WHERE id=$1",
@@ -202,6 +227,9 @@ export class ExecutionStore implements ExecutionPort {
       await event(client, task.id, `${step.kind}.started`, {
         stepId: step.id,
         key: step.key,
+        ...(step.kind === "tool" && step.request.kind === "tool"
+          ? { tool: step.request.name, input: step.request.input }
+          : {}),
       });
     });
   }
@@ -341,13 +369,20 @@ export class ExecutionStore implements ExecutionPort {
           step.id,
           outcome.kind,
           outcome.kind === "succeeded" ? (outcome.receipt ?? null) : null,
-          outcome.kind === "unknown" ? outcome.reconciliationRef : null,
+          outcome.kind === "unknown" || outcome.kind === "pending"
+            ? outcome.reconciliationRef
+            : null,
         ],
       );
       await this.applyOutcome(client, task, step, outcome);
       await event(client, task.id, `${step.kind}.${outcome.kind}`, {
         stepId: step.id,
-        ...(outcome.kind === "succeeded" ? {} : outcome),
+        ...(step.kind === "tool" && step.request.kind === "tool"
+          ? { tool: step.request.name }
+          : {}),
+        ...(outcome.kind === "succeeded"
+          ? { output: outcome.output }
+          : outcome),
       });
     });
   }
@@ -357,6 +392,19 @@ export class ExecutionStore implements ExecutionPort {
     step: Step,
     outcome: Outcome,
   ) {
+    if (outcome.kind === "pending") {
+      await client.query(
+        "UPDATE steps SET status='deferred',output=$2,updated_at=now() WHERE id=$1",
+        [
+          step.id,
+          JSON.stringify({
+            ...outcome,
+            resumeAt: Date.now() + outcome.retryAfterMs,
+          }),
+        ],
+      );
+      return this.release(client, task, "queued");
+    }
     if (outcome.kind === "succeeded") {
       await client.query(
         "UPDATE steps SET status='succeeded',output=$2,updated_at=now() WHERE id=$1",
@@ -379,6 +427,44 @@ export class ExecutionStore implements ExecutionPort {
       await client.query("UPDATE steps SET status='unknown' WHERE id=$1", [
         step.id,
       ]);
+      const action = step.request;
+      const tool =
+        action.kind === "tool"
+          ? this.registry
+              .get(task.module_id, task.module_version)
+              .tools.find((candidate) => candidate.name === action.name)
+          : undefined;
+      if (tool?.continueOnUnknown) {
+        await client.query("UPDATE steps SET output=$2 WHERE id=$1", [
+          step.id,
+          JSON.stringify({
+            status: "unknown",
+            reconciliationRef: outcome.reconciliationRef,
+            costStatus: "unknown",
+            guidance:
+              "Do not resubmit this operation. Continue only work independent of this unresolved result.",
+          }),
+        ]);
+        return this.release(client, task, "queued");
+      }
+      const polling = tool?.reconciliationPolling;
+      if (
+        polling &&
+        step.attempts + 1 <
+          Math.min(polling.maxAttempts, task.budget.maxAttempts)
+      ) {
+        await event(client, task.id, "tool.reconciliation_scheduled", {
+          stepId: step.id,
+          delayMs: polling.intervalMs,
+        });
+        // 保持 step=unknown，ToolBroker 下一次只走 reconcile，绝不走 execute。
+        return this.release(
+          client,
+          task,
+          "retry_scheduled",
+          polling.intervalMs,
+        );
+      }
       return this.release(client, task, "waiting_external");
     }
     await client.query(
@@ -390,6 +476,17 @@ export class ExecutionStore implements ExecutionPort {
       outcome.code,
     ]);
     return this.release(client, task, "failed");
+  }
+  async postpone(task: Task, delayMs: number): Promise<void> {
+    await this.db.transaction(async (client) => {
+      await this.lock(client, task);
+      await this.release(
+        client,
+        task,
+        "retry_scheduled",
+        Math.max(100, delayMs),
+      );
+    });
   }
   async fail(task: Task, code: string): Promise<void> {
     await this.db.transaction(async (client) => {

@@ -24,7 +24,12 @@ try {
         "--test-coverage-lines=80",
         "--test-coverage-branches=80",
         "--test-coverage-functions=80",
-        "--test-coverage-include=packages/**",
+        // 覆盖率门槛默认只统计核心 packages/**；下游仓库可用 COVERAGE_INCLUDE（逗号分隔的 glob）把自己的业务代码也纳入。
+        ...(process.env.COVERAGE_INCLUDE ?? "packages/**")
+          .split(",")
+          .map((glob) => glob.trim())
+          .filter(Boolean)
+          .map((glob) => `--test-coverage-include=${glob}`),
         "--test-concurrency=1",
         ...(await readdir("tests"))
           .filter((n) => n.endsWith(".test.ts"))

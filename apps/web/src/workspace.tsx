@@ -101,6 +101,7 @@ export function Workspace({
       .catch((error) => setError(String(error)));
   }, [token]);
   useEffect(() => {
+    if (view !== "tasks") return;
     let active = true;
     const update = () =>
       void refresh().catch((error) => {
@@ -115,7 +116,7 @@ export function Workspace({
       active = false;
       window.clearInterval(timer);
     };
-  }, [refresh]);
+  }, [refresh, view]);
   const submit = async (scheduled = false) => {
     setBusy(true);
     setError("");

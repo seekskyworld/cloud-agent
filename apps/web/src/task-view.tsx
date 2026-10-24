@@ -201,25 +201,35 @@ export function TaskView({
         <Actions detail={detail} client={client(token)} refresh={refresh} />
       )}
       {detail.files.map((file) => (
-        <button
-          className="artifact"
-          key={file.id}
-          onClick={async () => {
-            try {
-              const blob = await client(token).downloadFile(file.id);
-              const url = URL.createObjectURL(blob),
-                link = document.createElement("a");
-              link.href = url;
-              link.download = file.name;
-              link.click();
-              URL.revokeObjectURL(url);
-            } catch (error) {
-              onError(String(error));
-            }
-          }}
-        >
-          ↓ 下载文件 · {file.name} ({file.bytes} bytes)
-        </button>
+        <div key={file.id}>
+          <a
+            className="artifact"
+            href={client(token).fileUrl(file.id, true)}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {file.media_type.startsWith("video/") ? "▶" : "▣"} 打开预览 ·{" "}
+            {file.name}
+          </a>
+          <button
+            className="artifact"
+            onClick={async () => {
+              try {
+                const blob = await client(token).downloadFile(file.id);
+                const url = URL.createObjectURL(blob),
+                  link = document.createElement("a");
+                link.href = url;
+                link.download = file.name;
+                link.click();
+                URL.revokeObjectURL(url);
+              } catch (error) {
+                onError(String(error));
+              }
+            }}
+          >
+            ↓ 下载文件 · {file.name} ({file.bytes} bytes)
+          </button>
+        </div>
       ))}
       {detail.artifacts.map((artifact) => (
         <button

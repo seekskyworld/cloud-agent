@@ -4,6 +4,7 @@ import { managementEndpoints } from "../../packages/api/management.js";
 import { registerIdentityRoutes } from "./identity.js";
 import { bounded } from "../../packages/contracts/lifecycle.js";
 import { registerBusinessRoutes } from "./business.js";
+import { sendFile } from "./files.js";
 import { openapi } from "../../packages/api/openapi.js";
 import {
   Id,
@@ -68,7 +69,11 @@ export async function createApp(
       .number()
       .int()
       .min(1)
-      .parse(options.rateLimitMax ?? 120),
+      .parse(
+        options.rateLimitMax ??
+          container.config.API_RATE_LIMIT_PER_MINUTE ??
+          120,
+      ),
     timeWindow: 60_000,
   });
   app.setErrorHandler((error, _req, reply) => {
@@ -312,18 +317,15 @@ export async function createApp(
           );
       });
       api.get<{ Params: { id: string } }>("/files/:id", async (req, reply) => {
+        const query = z
+          .object({ inline: z.enum(["true", "false"]).default("false") })
+          .parse(req.query);
         const file = await container.downloads.get(
           req.principal,
           Id.parse(req.params).id,
         );
-        return reply
-          .header("content-type", file.mediaType)
-          .header("x-content-type-options", "nosniff")
-          .header(
-            "content-disposition",
-            `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
-          )
-          .send(file.data);
+        // 支持 Range：浏览器里的视频、音频可以拖动进度，大文件可以断点续传。
+        return sendFile(req, reply, file, query.inline === "true");
       });
       api.get("/artifacts/:id", async (req) =>
         container.service.artifact(req.principal, Id.parse(req.params).id),

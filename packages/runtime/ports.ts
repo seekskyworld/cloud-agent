@@ -111,7 +111,11 @@ export interface TaskPort {
     id: string,
   ): Promise<TaskNotification | null>;
   get(principal: Principal, id: string): Promise<Task>;
-  list(principal: Principal, offset?: number): Promise<Task[]>;
+  list(
+    principal: Principal,
+    offset?: number,
+    filter?: { modules?: string[]; projectId?: string },
+  ): Promise<Task[]>;
   page(
     principal: Principal,
     cursor?: { time: string; id: string },
@@ -175,6 +179,8 @@ export interface ExecutionPort {
   reconnectCancellation(): Promise<void>;
   claim(engineId: string | ((task: Task) => string)): Promise<Task | undefined>;
   heartbeat(task: Task): Promise<boolean>;
+  /** 将模型流式文本作为临时事件发布给实时客户端；不进入终态检查点。 */
+  modelProgress?(task: Task, step: Step, text: string): Promise<void>;
   steps(taskId: string): Promise<Step[]>;
   prepare(
     task: Task,
@@ -199,6 +205,7 @@ export interface ExecutionPort {
     elapsed: number,
     cost?: number,
   ): Promise<void>;
+  postpone(task: Task, delayMs: number): Promise<void>;
   fail(task: Task, code: string): Promise<void>;
   complete(task: Task, result: Json, title: string): Promise<void>;
 }

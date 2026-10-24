@@ -1,8 +1,9 @@
 import { managementEndpoints } from "./management.js";
 /** 相同业务动作复用调用方的请求键；不自动重发副作用、不把 Token 放入 URL。 */
 import { z } from "zod";
-import { endpoints, Id, Key } from "./contracts.js";
-export type { Agent, Detail, TaskSummary, Me } from "./contracts.js";
+import { endpoints, Id, Key, TaskEventSchema } from "./contracts.js";
+import type { TaskEvent } from "./contracts.js";
+export type { Agent, Detail, TaskSummary, Me, TaskEvent } from "./contracts.js";
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -55,11 +56,62 @@ export class CloudAgentClient {
       .array(
         z.object({
           id: z.coerce.string(),
+          task_id: z.uuid().optional(),
           role: z.string(),
           content: z.json(),
+          created_at: z.string().optional(),
         }),
       )
       .parse(await response.json());
+  }
+  /** 读取任务事件的有限批次 SSE；调用方携带游标即可持续接收模型增量。 */
+  async streamEvents(
+    id: string,
+    after = "0",
+    options: {
+      signal?: AbortSignal;
+      onEvent?: (event: TaskEvent) => void;
+    } = {},
+  ) {
+    const taskId = Id.parse({ id }).id;
+    const cursor = z
+      .string()
+      .regex(/^\d{1,18}$/)
+      .parse(after);
+    const response = await this.send(
+      `/tasks/${taskId}/events?format=sse&after=${encodeURIComponent(cursor)}`,
+      { signal: options.signal },
+    );
+    const reader = response.body?.getReader();
+    if (!reader) return [];
+    const decoder = new TextDecoder();
+    let buffer = "";
+    const events: TaskEvent[] = [];
+    const consume = (block: string) => {
+      let idValue = "",
+        data = "";
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith("id:")) idValue = line.slice(3).trim();
+        else if (line.startsWith("event:")) continue;
+        else if (line.startsWith("data:")) data += line.slice(5).trim();
+      }
+      if (!idValue || !data) return;
+      const event = TaskEventSchema.parse(JSON.parse(data));
+      events.push(event);
+      options.onEvent?.(event);
+    };
+    while (true) {
+      const chunk = await reader.read();
+      buffer += decoder.decode(chunk.value ?? new Uint8Array(), {
+        stream: !chunk.done,
+      });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) consume(block);
+      if (chunk.done) break;
+    }
+    if (buffer.trim()) consume(buffer);
+    return events;
   }
   /** 业务扩展接口仍通过同一认证通道；写请求显式提供稳定请求键。 */
   async business<T>(
@@ -94,6 +146,10 @@ export class CloudAgentClient {
       key?: string;
       offset?: number;
       after?: string;
+      /** tasks：只列这些模块的任务。 */
+      modules?: string[];
+      /** tasks：只列输入里 projectId 为此值的任务。 */
+      projectId?: string;
     } = {},
   ): Promise<z.output<(typeof endpoints)[K]["response"]>> {
     const definition = endpoints[operation];
@@ -107,7 +163,9 @@ export class CloudAgentClient {
         .int()
         .min(0)
         .max(1000000)
-        .parse(options.offset ?? 0)}`;
+        .parse(
+          options.offset ?? 0,
+        )}${options.modules?.length ? `&modules=${encodeURIComponent(options.modules.join(","))}` : ""}${options.projectId ? `&projectId=${encodeURIComponent(options.projectId)}` : ""}`;
     if (operation === "events")
       path += `?format=json&after=${z
         .string()
@@ -152,5 +210,10 @@ export class CloudAgentClient {
   }
   async downloadFile(id: string): Promise<Blob> {
     return (await this.send(`/files/${Id.parse({ id }).id}`)).blob();
+  }
+  /** 文件链接用于工作台预览；token 模式下仍应使用 downloadFile 获取带鉴权的 Blob。 */
+  fileUrl(id: string, inline = false) {
+    const value = Id.parse({ id }).id;
+    return `${this.options.baseUrl ?? ""}/v1/files/${value}${inline ? "?inline=true" : ""}`;
   }
 }

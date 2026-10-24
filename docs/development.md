@@ -44,7 +44,7 @@ docker build -t cloud-agent:local .
 pnpm test:compose
 ```
 
-`pnpm check` 包含文档、类型、lint、依赖方向、后端测试、核心覆盖率、交付工具回归和构建。单独跑后端用 `pnpm test:integration`；底层 `pnpm test` 需要运行器准备的临时库环境。核心 `packages/**` 行/分支/函数门槛各 80%，不代表整仓覆盖率。
+`pnpm check` 包含文档、类型、lint、依赖方向、后端测试、核心覆盖率、交付工具回归和构建。单独跑后端用 `pnpm test:integration`；底层 `pnpm test` 需要运行器准备的临时库环境。核心 `packages/**` 行/分支/函数门槛各 80%，不代表整仓覆盖率；下游仓库可设 `COVERAGE_INCLUDE`（逗号分隔 glob）把业务代码一并纳入门槛。
 
 测试库端口 55439，每次创建随机临时数据库并清理；`TEST_ADMIN_DATABASE_URL` 需创建库权限，库名含 `_test`，默认指向 `127.0.0.1:55439/cloud_agent_test`。`TEST_DATABASE_URL` 由运行器生成，勿指向用户库。浏览器截图在 `test-results/`；Compose 验证使用独立项目，覆盖重启、受限角色及备份恢复。
 

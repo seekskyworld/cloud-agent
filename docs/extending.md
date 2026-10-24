@@ -124,7 +124,7 @@ DISPATCH_POLICY='{"workspaceConcurrency":4,"workspaces":{"priority-workspace":8}
 | `cloud-agent/connectors` | 邮件、渠道、文件、模型与上下文供应商协议                                        |
 | `cloud-agent/testing`    | 隔离邮件供应商契约检查                                                          |
 
-包清单声明 `id/version/sdkMajor:1/permissions/config/requires/create`。`create(config, services)` 返回 modules，以及可选 routes/publicReads/jobs/pages/checks/dataResources/dependencies/close；新包默认不启用，部署通过 `BUSINESS_PACKAGES` 选择。未知包、错误 SDK、配置、权限声明和缺失依赖在启动时失败。包属于可信代码；这些接口不是安全沙箱。
+包清单声明 `id/version/sdkMajor:1/permissions/config/requires/create`。`create(config, services)` 返回 modules，以及可选 routes/files/publicReads/jobs/pages/checks/dataResources/dependencies/onArtifactStored/close；新包默认不启用，部署通过 `BUSINESS_PACKAGES` 选择。未知包、错误 SDK、配置、权限声明和缺失依赖在启动时失败。包属于可信代码；这些接口不是安全沙箱。
 
 ```dotenv
 ARTIFACT_STORE='{"provider":"local","id":"reports","directory":"/app/files"}'
@@ -168,6 +168,9 @@ BUSINESS_PACKAGES='[{"id":"starter","config":{"prefix":"报告"},"bindings":{"ou
 - **迁移**：包声明 `migrations:[{id,sql}]`；部署账号运行 `pnpm migrate:business`，创建 `business_<包名>` schema，记录校验和并给运行角色 DML。已经应用的迁移不可改写。业务 SQL 是可信部署代码，schema 不是恶意插件安全边界。
 - **领域端口**：`definePort<T>(id, version, check)` 声明协议；`requires` 使用 `{kind:"port",protocol:{id,version}}`，`services.port(alias,token)` 获取实现。适配器自行复核领域权限、并发版本和幂等，不能相信客户端主体。
 - **API**：`routes` 定义 GET/POST、Schema、capability 和 handle；自动挂载 `/v1/business/<包>/<路由>`。POST 必须用 context.key 在领域事务中去重，平台记录 started/succeeded/unconfirmed 审计但不重发。
+- **文件**：`files` 定义 GET/PUT 文件路由，挂载 `/v1/business/<包>/files/<id>`。GET 的 handle 返回 `{name, mediaType, data}`，平台负责 Range、`inline=true` 内联与 nosniff；PUT 接收 `application/octet-stream` 原始字节（`maxBytes` 默认 50 MB、最大 500 MB），必须带 `Idempotency-Key`，由业务实现领域幂等。读取不写审计行，上传记录 started/succeeded/unconfirmed。
+- **产物回调**：`onArtifactStored(input)` 在产物保存后调用，拿到 `artifactUri`、任务输入与执行上下文，业务自行决定是否同步到自己的存储；回调失败会让这次保存失败。
+- **旧版本只读**：模块声明 `compatibility: { previousVersions: "read-only" }` 后，未注册的旧版本任务由平台按当前版本生成只读模块读取，继续执行返回 409 `MODULE_VERSION_RETIRED`；需要旧版本继续执行时仍应注册对应版本或保留兼容 Worker。
 - **作业**：`jobs` 定义模块、输入及间隔，部署的 `jobs` 显式绑定 workspace/principal；按持久触发点去重，恢复不补发所有错过周期。配置漂移先拒绝运行，通过 `/business-jobs` 比较 hash 后显式更新/停用；关闭整个包时其作业停止调度。
 - **页面**：服务端 pages 控制可见导航，前端 `defineBusinessViews` 注册可信组件，必须声明 sdkMajor:1；静态构建并按授权显示，不从服务器下载可执行代码。
 - **依赖指纹**：默认绑定整包依赖；`dependencies[moduleId]={bindings:[别名],config:[配置键]}` 可缩窄实际依赖。声明者负责完整性，漏报依赖是业务错误。
@@ -184,7 +187,7 @@ BUSINESS_PACKAGES='[{"id":"starter","config":{"prefix":"报告"},"bindings":{"ou
 
 模块 `runtime.pool/labels` 约束执行实例；与 `EXECUTION_POOL/EXECUTION_LABELS` 匹配才领取。`children` 动作支持最多 20 个子任务、最多 4 层、持久去重/汇总与取消传播，身份只能收窄。默认子失败使父失败；`onFailure:"collect"` 显式把失败结果交给业务处理。需要补偿时，由接入方声明独立的幂等写工具，收集子任务失败后经审批执行；取消不会自动补偿，未知原动作必须先核实。
 
-模型可以声明 modalities/tools/structuredOutput 能力，实现 countTokens 与 stream；只有最终完整结果持久提交。Pi 当前只支持文本，图片/文件必须使用声明相应能力的适配器，不支持时明确拒绝。没有隐式模型 fallback。
+模型可以声明 modalities/tools/structuredOutput 能力，实现 countTokens 与 stream；只有最终完整结果持久提交。Pi 支持文本、图片和视频内容块：视频在当前供应商仅接受图片输入时会在适配器边界展开为按时间排序的低分辨率帧序列；图片/文件/视频必须使用声明相应能力的适配器，不支持时明确拒绝。没有隐式模型 fallback。
 
 `MEMORY_ENABLED=true` 注册 memory ContextProvider；`POST/DELETE /v1/memories` 需要 memory:write，检索需要 memory:read。记忆限当前主体和 namespace，1–365 天，删除或到期使旧引用失效。文档可声明 source/version、expiresAt、purposes，过期和用途不符禁止用于模型。
 

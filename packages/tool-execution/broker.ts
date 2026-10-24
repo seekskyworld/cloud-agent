@@ -19,7 +19,7 @@ export class ToolBroker {
   ): Promise<Outcome> {
     requireCapability(context.principal, tool.capability);
     const parsed = tool.input.parse(input) as Data;
-    const recovering = ["running", "unknown"].includes(step.status);
+    const recovering = ["running", "unknown", "deferred"].includes(step.status);
     if (recovering && tool.effect === "unsafe_write")
       return { kind: "unknown", reconciliationRef: step.id };
     if (recovering && tool.effect === "reconcilable_write" && !tool.reconcile)
@@ -35,6 +35,16 @@ export class ToolBroker {
           ? tool.reconcile(parsed, execution)
           : tool.execute(parsed, execution),
       );
+      if (
+        outcome.kind === "pending" &&
+        (!tool.deferred ||
+          !tool.reconcile ||
+          tool.effect !== "reconcilable_write" ||
+          !Number.isFinite(outcome.retryAfterMs) ||
+          outcome.retryAfterMs < 1000 ||
+          outcome.retryAfterMs > 3600000)
+      )
+        return { kind: "unknown", reconciliationRef: step.id };
       if (outcome.kind === "succeeded") {
         const checked = tool.output.safeParse(outcome.output);
         if (!checked.success)

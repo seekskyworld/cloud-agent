@@ -13,8 +13,8 @@ export class WorkspaceCosts {
     private db: Database,
     private policy: CostPolicy = { workspaces: {} },
   ) {}
-  async reserve(task: Task, invocation: string, amount: number) {
-    if (!Number.isFinite(amount) || amount <= 0)
+  async reserve(task: Task, invocation: string, amount?: number) {
+    if (amount !== undefined && (!Number.isFinite(amount) || amount <= 0))
       throw new Problem(422, "COST_BUDGET_EXCEEDED");
     const limits = [
       {
@@ -47,11 +47,12 @@ export class WorkspaceCosts {
             [scope],
           )
         ).rows[0]!;
-        if (row.total + amount > limit)
+        const reservation = amount ?? Math.max(0, limit - row.total);
+        if (reservation <= 0 || row.total + reservation > limit)
           throw new Problem(429, "WORKSPACE_COST_LIMIT");
         await client.query(
           "INSERT INTO cost_reservations(scope,invocation,workspace_id,task_id,period,reserved) VALUES($1,$2,$3,$4,date_trunc('month',now())::date,$5)",
-          [scope, invocation, task.workspace_id, task.id, amount],
+          [scope, invocation, task.workspace_id, task.id, reservation],
         );
       }
     });

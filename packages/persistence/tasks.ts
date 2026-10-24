@@ -93,7 +93,7 @@ export class TaskStore implements TaskPort {
   async conversationMessages(id: string) {
     return (
       await this.db.pool.query<MessageRow>(
-        "SELECT id,task_id,role,content,created_at FROM messages WHERE conversation_id=$1 ORDER BY id LIMIT 200",
+        "SELECT id,task_id,role,content,created_at FROM messages WHERE conversation_id=$1 ORDER BY created_at,id LIMIT 200",
         [id],
       )
     ).rows;
@@ -306,11 +306,22 @@ export class TaskStore implements TaskPort {
   async get(principal: Principal, id: string): Promise<Task> {
     return this.db.transaction((client) => ownedTask(client, principal, id));
   }
-  async list(principal: Principal, offset = 0) {
+  /** 最近 50 条；可按模块与输入里的 projectId 过滤（高频工具任务不会挤掉会话任务）。 */
+  async list(
+    principal: Principal,
+    offset = 0,
+    filter: { modules?: string[]; projectId?: string } = {},
+  ) {
     return (
       await this.db.pool.query<Task>(
-        "SELECT * FROM tasks WHERE workspace_id=$1 AND principal_id=$2 ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET $3",
-        [principal.workspace_id, principal.id, offset],
+        "SELECT * FROM tasks WHERE workspace_id=$1 AND principal_id=$2 AND ($4::text[] IS NULL OR module_id=ANY($4::text[])) AND ($5::text IS NULL OR input->>'projectId'=$5) ORDER BY created_at DESC,id DESC LIMIT 50 OFFSET $3",
+        [
+          principal.workspace_id,
+          principal.id,
+          offset,
+          filter.modules?.length ? filter.modules : null,
+          filter.projectId ?? null,
+        ],
       )
     ).rows;
   }
