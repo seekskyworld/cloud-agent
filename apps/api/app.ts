@@ -228,16 +228,25 @@ export async function createApp(
           conversationId: task.conversation_id,
         });
       });
-      api.get("/tasks", async (req) =>
-        container.service.list(
-          req.principal,
-          z
-            .object({
-              offset: z.coerce.number().int().min(0).max(1000000).default(0),
-            })
-            .parse(req.query).offset,
-        ),
-      );
+      api.get("/tasks", async (req) => {
+        const query = z
+          .object({
+            offset: z.coerce.number().int().min(0).max(1000000).default(0),
+            // 逗号分隔的模块 ID 与输入里的 projectId：高频的工具任务不会把会话任务挤出最近 50 条。
+            modules: z
+              .string()
+              .max(1000)
+              .transform((value) => value.split(",").filter(Boolean))
+              .pipe(z.array(z.string().min(1).max(128)).max(20))
+              .optional(),
+            projectId: z.string().min(1).max(128).optional(),
+          })
+          .parse(req.query);
+        return container.service.list(req.principal, query.offset, {
+          ...(query.modules?.length ? { modules: query.modules } : {}),
+          ...(query.projectId ? { projectId: query.projectId } : {}),
+        });
+      });
       api.get("/tasks/:id", async (req) =>
         container.service.detail(req.principal, Id.parse(req.params).id),
       );

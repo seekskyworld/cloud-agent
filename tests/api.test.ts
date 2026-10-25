@@ -135,6 +135,18 @@ test("任务、会话和产物 API 完整闭环，跨工作区隔离", async () 
     (await app.inject({ url: "/v1/tasks", headers })).json().length,
     1,
   );
+  // 模块与 projectId 过滤在接口层生效。
+  for (const [query, count] of [
+    ["?modules=report", 1],
+    ["?modules=other%2Creport", 1],
+    ["?modules=other", 0],
+    ["?projectId=project-x", 0],
+  ] as const)
+    assert.equal(
+      (await app.inject({ url: `/v1/tasks${query}`, headers })).json().length,
+      count,
+      query,
+    );
   assert.equal(
     (await app.inject({ url: "/v1/conversations", headers })).json().length,
     1,
