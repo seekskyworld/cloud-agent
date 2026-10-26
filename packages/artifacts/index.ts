@@ -19,6 +19,12 @@ export const fileDigest = (data: Buffer) =>
 // keep the smaller logical limit enforced by ArtifactFiles.put below.
 export const MAX_FILE_BYTES = 200_000_000;
 export const MAX_NON_MEDIA_FILE_BYTES = 10_000_000;
+/** 图片、音频、视频按媒体上限（高分辨率 PNG 常超过 10 MB）；其余文件 10 MB。 */
+export function artifactLimit(mediaType: string) {
+  return /^(video|image|audio)\//.test(mediaType)
+    ? MAX_FILE_BYTES
+    : MAX_NON_MEDIA_FILE_BYTES;
+}
 export function objectKey(key: string) {
   if (!/^[a-f0-9]{64}$/.test(key))
     throw new Problem(400, "ARTIFACT_KEY_INVALID");
@@ -69,10 +75,8 @@ export class ArtifactFiles {
       !/^[a-z0-9.+-]+\/[a-z0-9.+-]+$/.test(mediaType)
     )
       throw new Problem(400, "ARTIFACT_METADATA_INVALID");
-    const maxBytes = mediaType.startsWith("video/")
-      ? MAX_FILE_BYTES
-      : MAX_NON_MEDIA_FILE_BYTES;
-    if (data.length > maxBytes) throw new Problem(413, "ARTIFACT_TOO_LARGE");
+    if (data.length > artifactLimit(mediaType))
+      throw new Problem(413, "ARTIFACT_TOO_LARGE");
     const task = await this.tasks.get(context.principal, context.taskId);
     const digest = fileDigest(data),
       key = fileDigest(

@@ -61,7 +61,7 @@ CONNECTION_CREDENTIALS='{"channel-key":{"signingKey":"replace-with-at-least-32-r
 
 ## 文件产物
 
-默认关闭，旧 JSON 产物仍可使用。工具调用 `ArtifactFiles.put(context, name, mediaType, Buffer)`，返回元数据和鉴权下载路径；内容不可覆盖，同调用同名改内容被拒绝。限制 10 MB，保存 SHA-256、大小和过期时间，默认 30 天。写入失败可能留下不被引用的对象，重试按稳定键复用；运维删除孤立对象前应核对元数据及正在执行的任务。
+默认关闭，旧 JSON 产物仍可使用。工具调用 `ArtifactFiles.put(context, name, mediaType, Buffer)`，返回元数据和鉴权下载路径；内容不可覆盖，同调用同名改内容被拒绝。图片、音频、视频限制 200 MB，其余文件 10 MB，保存 SHA-256、大小和过期时间，默认 30 天。写入失败可能留下不被引用的对象，重试按稳定键复用；运维删除孤立对象前应核对元数据及正在执行的任务。
 
 ```dotenv
 ARTIFACT_STORE='{"provider":"local","id":"files-v1","directory":"/app/files"}'

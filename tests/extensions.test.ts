@@ -463,3 +463,12 @@ test("离线诊断覆盖附加存储的凭据，失败不输出凭据或路径",
     true,
   );
 });
+
+test("image, audio and video artifacts use the media size limit; other files keep 10 MB", async () => {
+  const { artifactLimit, MAX_FILE_BYTES, MAX_NON_MEDIA_FILE_BYTES } =
+    await import("../packages/artifacts/index.js");
+  for (const type of ["image/png", "audio/mpeg", "video/mp4"])
+    assert.equal(artifactLimit(type), MAX_FILE_BYTES, type);
+  for (const type of ["application/json", "text/markdown"])
+    assert.equal(artifactLimit(type), MAX_NON_MEDIA_FILE_BYTES, type);
+});
